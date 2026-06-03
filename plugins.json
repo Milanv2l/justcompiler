@@ -1,0 +1,14 @@
+[
+    {"name": "C++ (Qt / CMake)", "detect": ["chessx.pro", "CMakeLists.txt", "configure.ac"], "tool": "cmake", "cmd_system": "DYNAMIC_CPP_RESOLUTION", "out_dirs": ["build", "release", "bin", "."], "out_exts": [".exe", "", ".appimage"]},
+    {"name": "C/C++ (Makefile)", "detect": ["Makefile", "makefile"], "tool": "make", "cmd_system": "make -j$(nproc)", "out_dirs": ["build", "bin", "."], "out_exts": [".exe", "", ".so", ".o"]},
+    {"name": "C# (.NET Core)", "detect": ["*.sln", "*.csproj"], "tool": "dotnet", "cmd_system": "dotnet publish -c Release -o ./dist", "out_dirs": ["dist", "bin/Release"], "out_exts": [".exe", ".dll", "*DIR*"]},
+    {"name": "Python (PyInstaller)", "detect": ["requirements.txt", "setup.py", "pyproject.toml"], "tool": "python", "cmd_system": "DYNAMIC_PYTHON_RESOLUTION", "out_dirs": ["dist", "build"], "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"]},
+    {"name": "Java (Gradle)", "detect": ["settings.gradle", "build.gradle", "build.gradle.kts"], "tool": "gradle", "wrapper": "gradlew", "cmd_system": "gradle assemble", "out_dirs": ["build/libs", "app/build/libs"], "out_exts": [".jar", ".war"]},
+    {"name": "Java (Maven)", "detect": ["pom.xml"], "tool": "mvn", "wrapper": "mvnw", "cmd_system": "mvn clean package -DskipTests", "out_dirs": ["target", "build"], "out_exts": [".jar", ".war"]},
+    {"name": "Node.js (PNPM)", "detect": ["pnpm-lock.yaml"], "tool": "pnpm", "cmd_system": "DYNAMIC_JS_RESOLUTION", "out_dirs": ["dist", "build", "out", "release", "out/main"], "out_exts": ["*DIR*", ".asar", ".deb", ".exe"]},
+    {"name": "Node.js (Yarn/NPM)", "detect": ["yarn.lock", "package.json"], "tool": "npm", "cmd_system": "DYNAMIC_JS_RESOLUTION", "out_dirs": ["dist", "build", "out", "release"], "out_exts": ["*DIR*", ".asar", ".deb", ".exe"]},
+    {"name": "Go (Modules)", "detect": ["go.mod"], "tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output", "bin", "dist"], "out_exts": [".exe", "", ".bin"]},
+    {"name": "Rust (Cargo)", "detect": ["Cargo.toml"], "tool": "cargo", "cmd_system": "cargo build --release --workspace", "out_dirs": ["target/release", "dist"], "out_exts": [".exe", "", ".so", ".dll"]},
+    {"name": "Ruby (Gems)", "detect": ["Gemfile"], "tool": "bundle", "cmd_system": "bundle install --standalone", "out_dirs": ["bundle", "."], "out_exts": ["*DIR*"]},
+    {"name": "PHP (Composer)", "detect": ["composer.json"], "tool": "composer", "cmd_system": "composer install --no-dev --optimize-autoloader", "out_dirs": ["vendor", "."], "out_exts": ["*DIR*"]}
+]
