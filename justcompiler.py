@@ -6,9 +6,13 @@ import argparse
 import platform
 import json
 from pathlib import Path
+import urllib.request
 import core
 from core import UI, t
 import baremetal
+
+# --- JUSTCOMPILER VERSION ---
+VERSION = "1.0.0"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -20,6 +24,30 @@ def init_terminal_colors():
             kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
         except Exception:
             pass
+
+def check_for_updates():
+    """Silently checks GitHub for a newer version and updates files automatically."""
+    current_dir = Path(__file__).resolve().parent
+    version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/master/version.txt"
+    
+    # Short timeout (1.5s) ensures the tool starts instantly even if offline
+    try:
+        with urllib.request.urlopen(version_url, timeout=1.5) as response:
+            remote_version = response.read().decode('utf-8').strip()
+        
+        if remote_version != VERSION:
+            print(f"{UI.CYAN}[INFO] New update found ({remote_version}). Downloading components...{UI.RESET}")
+            files = ["justcompiler.py", "core.py", "engine.py", "baremetal.py", "plugins.json"]
+            for file_name in files:
+                file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/master/{file_name}"
+                with urllib.request.urlopen(file_url, timeout=5) as file_response:
+                    (current_dir / file_name).write_bytes(file_response.read())
+            
+            print(f"{UI.GREEN}[OK] JustCompiler updated successfully to {remote_version}! Please restart the tool.{UI.RESET}")
+            sys.exit(0)
+    except Exception:
+        # Pass silently if offline, GitHub is rate-limiting, or version.txt is missing
+        pass
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str):
     if not shutil.which("docker"):
@@ -56,7 +84,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-dockerfile_content = """FROM ubuntu:24.04
+    dockerfile_content = """FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && npm install -g pnpm yarn && rm -rf /var/lib/apt/lists/*
@@ -68,11 +96,10 @@ WORKDIR /workspace
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
-ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
+ENTRYPOINT ["python3", "/workspace/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
 """
     dockerfile_path = host_dir / "Dockerfile"
-
-    # Safe management of the temporary Dockerfile
+    
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         UI.info(t('sandbox_prep'))
@@ -93,7 +120,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         "gradle": home / ".gradle", "maven": home / ".m2", "npm": home / ".npm",
         "pip": home / ".cache" / "pip", "cargo": home / ".cargo" / "registry"
     }
-    for path in cache_dirs.values():
+    for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
     run_cmd = docker_cmd + [
@@ -109,7 +136,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         "justcompiler-engine",
         "--lang", lang
     ]
-    if run_tests:
+    if run_tests: 
         run_cmd.append("--test")
 
     UI.info(f"Launching container: {' '.join(run_cmd)}")
@@ -126,7 +153,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
 def handle_remote_git(url: str) -> Path:
     UI.info(t('git_clone'))
     branch = None
-    if "#" in url:
+    if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
 
     cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
@@ -144,6 +171,7 @@ def handle_remote_git(url: str) -> Path:
 
 if __name__ == "__main__":
     init_terminal_colors()
+    check_for_updates() # Voert de stille update check direct uit bij de start
 
     parser = argparse.ArgumentParser(description="JustCompiler CLI")
     parser.add_argument("--local-runtime", action="store_true", help="Force local bare-metal execution")
@@ -172,7 +200,7 @@ if __name__ == "__main__":
         target = Path(path_input) if path_input else Path(".")
     elif choice == "2":
         url = input(f"{UI.YELLOW}{t('git_prompt')}{UI.RESET}").strip()
-        if url:
+        if url: 
             target = handle_remote_git(url)
     else:
         sys.exit(0)
