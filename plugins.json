@@ -1,14 +1,430 @@
 [
-    {"name": "C++ (Qt / CMake)", "detect": ["chessx.pro", "CMakeLists.txt", "configure.ac"], "tool": "cmake", "cmd_system": "DYNAMIC_CPP_RESOLUTION", "out_dirs": ["build", "release", "bin", "."], "out_exts": [".exe", "", ".appimage"]},
-    {"name": "C/C++ (Makefile)", "detect": ["Makefile", "makefile"], "tool": "make", "cmd_system": "make -j$(nproc)", "out_dirs": ["build", "bin", "."], "out_exts": [".exe", "", ".so", ".o"]},
-    {"name": "C# (.NET Core)", "detect": ["*.sln", "*.csproj"], "tool": "dotnet", "cmd_system": "dotnet publish -c Release -o ./dist", "out_dirs": ["dist", "bin/Release"], "out_exts": [".exe", ".dll", "*DIR*"]},
-    {"name": "Python (PyInstaller)", "detect": ["requirements.txt", "setup.py", "pyproject.toml"], "tool": "python", "cmd_system": "DYNAMIC_PYTHON_RESOLUTION", "out_dirs": ["dist", "build"], "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"]},
-    {"name": "Java (Gradle)", "detect": ["settings.gradle", "build.gradle", "build.gradle.kts"], "tool": "gradle", "wrapper": "gradlew", "cmd_system": "gradle assemble", "out_dirs": ["build/libs", "app/build/libs"], "out_exts": [".jar", ".war"]},
-    {"name": "Java (Maven)", "detect": ["pom.xml"], "tool": "mvn", "wrapper": "mvnw", "cmd_system": "mvn clean package -DskipTests", "out_dirs": ["target", "build"], "out_exts": [".jar", ".war"]},
-    {"name": "Node.js (PNPM)", "detect": ["pnpm-lock.yaml"], "tool": "pnpm", "cmd_system": "DYNAMIC_JS_RESOLUTION", "out_dirs": ["dist", "build", "out", "release", "out/main"], "out_exts": ["*DIR*", ".asar", ".deb", ".exe"]},
-    {"name": "Node.js (Yarn/NPM)", "detect": ["yarn.lock", "package.json"], "tool": "npm", "cmd_system": "DYNAMIC_JS_RESOLUTION", "out_dirs": ["dist", "build", "out", "release"], "out_exts": ["*DIR*", ".asar", ".deb", ".exe"]},
-    {"name": "Go (Modules)", "detect": ["go.mod"], "tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output", "bin", "dist"], "out_exts": [".exe", "", ".bin"]},
-    {"name": "Rust (Cargo)", "detect": ["Cargo.toml"], "tool": "cargo", "cmd_system": "cargo build --release --workspace", "out_dirs": ["target/release", "dist"], "out_exts": [".exe", "", ".so", ".dll"]},
-    {"name": "Ruby (Gems)", "detect": ["Gemfile"], "tool": "bundle", "cmd_system": "bundle install --standalone", "out_dirs": ["bundle", "."], "out_exts": ["*DIR*"]},
-    {"name": "PHP (Composer)", "detect": ["composer.json"], "tool": "composer", "cmd_system": "composer install --no-dev --optimize-autoloader", "out_dirs": ["vendor", "."], "out_exts": ["*DIR*"]}
+    {
+        "name": "C (Linux Kernel)",
+        "detect": ["Kconfig", "Kbuild"],
+        "tool": "kernel-build",
+        "cmd_system": "make defconfig && make -j$(nproc)",
+        "out_dirs": ["arch/x86/boot", "."],
+        "out_exts": ["bzImage", "vmlinux", ".ko"]
+    },
+    {
+        "name": "Crystal",
+        "detect": ["shard.yml"],
+        "tool": "shards",
+        "cmd_system": "shards build --release",
+        "out_dirs": ["bin"],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "Vala (Meson)",
+        "detect": ["meson.build"],
+        "tool": "valac",
+        "cmd_system": "meson setup build && meson compile -C build",
+        "out_dirs": ["build"],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "C++ (Qt6 / qmake)",
+        "detect": ["*.pro"],
+        "tool": "qmake6",
+        "cmd_system": "DYNAMIC_CPP_RESOLUTION",
+        "out_dirs": ["build", "release", "bin", "."],
+        "out_exts": [".exe", "", ".appimage", ".so"]
+    },
+    {
+        "name": "C++ (Qt5 / qmake)",
+        "detect": ["*.pro"],
+        "tool": "qmake",
+        "cmd_system": "DYNAMIC_CPP_RESOLUTION",
+        "out_dirs": ["build", "release", "bin", "."],
+        "out_exts": [".exe", "", ".appimage", ".so"]
+    },
+    {
+        "name": "C++ (CMake)",
+        "detect": ["CMakeLists.txt"],
+        "tool": "cmake",
+        "cmd_system": "DYNAMIC_CPP_RESOLUTION",
+        "out_dirs": ["build", "release", "bin", "."],
+        "out_exts": [".exe", "", ".appimage", ".so", ".dll"]
+    },
+    {
+        "name": "C++ (Autoconf / configure)",
+        "detect": ["configure.ac", "configure.in"],
+        "tool": "autoconf",
+        "cmd_system": "autoreconf -fi && ./configure && make -j$(nproc)",
+        "out_dirs": ["build", "bin", "."],
+        "out_exts": [".exe", "", ".so"]
+    },
+    {
+        "name": "C/C++ (Makefile)",
+        "detect": ["Makefile", "makefile", "GNUmakefile"],
+        "tool": "make",
+        "cmd_system": "make -j$(nproc)",
+        "out_dirs": ["build", "bin", "."],
+        "out_exts": [".exe", "", ".so", ".o", ".a"]
+    },
+    {
+        "name": "C++ (Meson)",
+        "detect": ["meson.build"],
+        "tool": "meson",
+        "cmd_system": "meson setup build && meson compile -C build",
+        "out_dirs": ["build", "bin"],
+        "out_exts": [".exe", "", ".so"]
+    },
+    {
+        "name": "C++ (Bazel)",
+        "detect": ["BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel"],
+        "tool": "bazel",
+        "cmd_system": "bazel build //...",
+        "out_dirs": ["bazel-bin", "bazel-out"],
+        "out_exts": [".exe", "", ".so", ".dll"]
+    },
+    {
+        "name": "C# (.NET Core / SDK)",
+        "detect": ["*.sln", "*.csproj"],
+        "tool": "dotnet",
+        "cmd_system": "dotnet publish -c Release -o ./dist",
+        "out_dirs": ["dist", "bin/Release", "bin/x64/Release"],
+        "out_exts": [".exe", ".dll", "*DIR*"]
+    },
+    {
+        "name": "F# (.NET Core)",
+        "detect": ["*.fsproj"],
+        "tool": "dotnet",
+        "cmd_system": "dotnet publish -c Release -o ./dist",
+        "out_dirs": ["dist", "bin/Release"],
+        "out_exts": [".exe", ".dll", "*DIR*"]
+    },
+    {
+        "name": "Visual Basic (.NET)",
+        "detect": ["*.vbproj"],
+        "tool": "dotnet",
+        "cmd_system": "dotnet publish -c Release -o ./dist",
+        "out_dirs": ["dist", "bin/Release"],
+        "out_exts": [".exe", ".dll", "*DIR*"]
+    },
+    {
+        "name": "Python (PyInstaller / setuptools)",
+        "detect": ["requirements.txt", "setup.py", "pyproject.toml"],
+        "tool": "python3",
+        "cmd_system": "DYNAMIC_PYTHON_RESOLUTION",
+        "out_dirs": ["dist", "build"],
+        "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"]
+    },
+    {
+        "name": "Python (Poetry)",
+        "detect": ["poetry.lock"],
+        "tool": "poetry",
+        "cmd_system": "poetry install && poetry build",
+        "out_dirs": ["dist"],
+        "out_exts": [".whl", ".tar.gz"]
+    },
+    {
+        "name": "Python (PDM)",
+        "detect": ["pdm.lock"],
+        "tool": "pdm",
+        "cmd_system": "pdm install && pdm build",
+        "out_dirs": ["dist"],
+        "out_exts": [".whl", ".tar.gz"]
+    },
+    {
+        "name": "Java (Gradle)",
+        "detect": ["settings.gradle", "build.gradle", "build.gradle.kts"],
+        "tool": "gradle",
+        "wrapper": "gradlew",
+        "cmd_system": "gradle assemble",
+        "out_dirs": ["build/libs", "app/build/libs", "build/distributions"],
+        "out_exts": [".jar", ".war", ".ear", ".zip"]
+    },
+    {
+        "name": "Java (Maven)",
+        "detect": ["pom.xml"],
+        "tool": "mvn",
+        "wrapper": "mvnw",
+        "cmd_system": "mvn clean package -DskipTests",
+        "out_dirs": ["target", "build"],
+        "out_exts": [".jar", ".war", ".ear"]
+    },
+    {
+        "name": "Java (Ant)",
+        "detect": ["build.xml"],
+        "tool": "ant",
+        "cmd_system": "ant compile jar",
+        "out_dirs": ["dist", "build", "out"],
+        "out_exts": [".jar"]
+    },
+    {
+        "name": "Kotlin (Gradle)",
+        "detect": ["build.gradle.kts", "settings.gradle.kts"],
+        "tool": "gradle",
+        "wrapper": "gradlew",
+        "cmd_system": "gradle assemble",
+        "out_dirs": ["build/libs", "app/build/outputs"],
+        "out_exts": [".jar", ".apk", ".aab"]
+    },
+    {
+        "name": "Android (Gradle)",
+        "detect": ["AndroidManifest.xml"],
+        "tool": "gradle",
+        "wrapper": "gradlew",
+        "cmd_system": "gradle assembleRelease",
+        "out_dirs": ["app/build/outputs/apk", "app/build/outputs/bundle"],
+        "out_exts": [".apk", ".aab"]
+    },
+    {
+        "name": "Scala (SBT)",
+        "detect": ["build.sbt"],
+        "tool": "sbt",
+        "cmd_system": "sbt assembly",
+        "out_dirs": ["target/scala-2.13", "target/scala-3"],
+        "out_exts": [".jar"]
+    },
+    {
+        "name": "Node.js (PNPM)",
+        "detect": ["pnpm-lock.yaml"],
+        "tool": "pnpm",
+        "cmd_system": "DYNAMIC_JS_RESOLUTION",
+        "out_dirs": ["dist", "build", "out", "release", "out/main", ".next", "public"],
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+    },
+    {
+        "name": "Node.js (Yarn)",
+        "detect": ["yarn.lock"],
+        "tool": "yarn",
+        "cmd_system": "DYNAMIC_JS_RESOLUTION",
+        "out_dirs": ["dist", "build", "out", "release", ".next"],
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+    },
+    {
+        "name": "Node.js (NPM)",
+        "detect": ["package.json"],
+        "tool": "npm",
+        "cmd_system": "DYNAMIC_JS_RESOLUTION",
+        "out_dirs": ["dist", "build", "out", "release"],
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+    },
+    {
+        "name": "Node.js (Bun)",
+        "detect": ["bun.lockb", "bun.lock"],
+        "tool": "bun",
+        "cmd_system": "bun install && bun run build",
+        "out_dirs": ["dist", "build", "out"],
+        "out_exts": ["*DIR*", ".js"]
+    },
+    {
+        "name": "Deno",
+        "detect": ["deno.json", "deno.jsonc"],
+        "tool": "deno",
+        "cmd_system": "deno task build",
+        "out_dirs": ["dist", "build", "out"],
+        "out_exts": [".exe", "", ".js"]
+    },
+    {
+        "name": "Go (Modules)",
+        "detect": ["go.mod"],
+        "tool": "go",
+        "cmd_system": "DYNAMIC_GO_RESOLUTION",
+        "out_dirs": ["build_output", "bin", "dist", "."],
+        "out_exts": [".exe", "", ".bin"]
+    },
+    {
+        "name": "Rust (Cargo)",
+        "detect": ["Cargo.toml"],
+        "tool": "cargo",
+        "cmd_system": "cargo build --release --workspace",
+        "out_dirs": ["target/release", "target/release/deps", "dist"],
+        "out_exts": [".exe", "", ".so", ".dll", ".rlib"]
+    },
+    {
+        "name": "Rust (Trunk / WASM)",
+        "detect": ["Trunk.toml"],
+        "tool": "trunk",
+        "cmd_system": "trunk build --release",
+        "out_dirs": ["dist"],
+        "out_exts": ["*DIR*", ".wasm", ".js"]
+    },
+    {
+        "name": "Swift (Swift Package Manager)",
+        "detect": ["Package.swift"],
+        "tool": "swift",
+        "cmd_system": "swift build -c release",
+        "out_dirs": [".build/release", "build"],
+        "out_exts": ["", ".dylib", ".framework"]
+    },
+    {
+        "name": "Xcode (iOS / macOS)",
+        "detect": ["*.xcodeproj", "*.xcworkspace"],
+        "tool": "xcodebuild",
+        "cmd_system": "xcodebuild -scheme Release -configuration Release build",
+        "out_dirs": ["build/Release", "DerivedData"],
+        "out_exts": [".app", ".ipa", ".framework"]
+    },
+    {
+        "name": "Ruby (Gems / Bundler)",
+        "detect": ["Gemfile"],
+        "tool": "bundle",
+        "cmd_system": "bundle install --standalone",
+        "out_dirs": ["bundle", "."],
+        "out_exts": ["*DIR*", ".gem"]
+    },
+    {
+        "name": "Ruby (Rake)",
+        "detect": ["Rakefile"],
+        "tool": "rake",
+        "cmd_system": "bundle exec rake build",
+        "out_dirs": ["pkg", "build", "dist"],
+        "out_exts": [".gem", "*DIR*"]
+    },
+    {
+        "name": "PHP (Composer)",
+        "detect": ["composer.json"],
+        "tool": "composer",
+        "cmd_system": "composer install --no-dev --optimize-autoloader",
+        "out_dirs": ["vendor", "."],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "PHP (Laravel)",
+        "detect": ["artisan"],
+        "tool": "composer",
+        "cmd_system": "composer install --no-dev --optimize-autoloader && php artisan optimize",
+        "out_dirs": ["vendor", "public"],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "Elixir (Mix)",
+        "detect": ["mix.exs"],
+        "tool": "mix",
+        "cmd_system": "mix deps.get && mix release",
+        "out_dirs": ["_build/prod/rel", "_build/prod"],
+        "out_exts": ["*DIR*", ""]
+    },
+    {
+        "name": "Erlang (Rebar3)",
+        "detect": ["rebar.config"],
+        "tool": "rebar3",
+        "cmd_system": "rebar3 release",
+        "out_dirs": ["_build/default/rel"],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "Haskell (Cabal)",
+        "detect": ["*.cabal"],
+        "tool": "cabal",
+        "cmd_system": "cabal build all",
+        "out_dirs": ["dist-newstyle", "dist"],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "Haskell (Stack)",
+        "detect": ["stack.yaml"],
+        "tool": "stack",
+        "cmd_system": "stack build",
+        "out_dirs": [".stack-work/dist"],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "OCaml (Dune)",
+        "detect": ["dune-project"],
+        "tool": "dune",
+        "cmd_system": "opam exec -- dune build @install",
+        "out_dirs": ["_build/default"],
+        "out_exts": ["", ".exe", ".cma", ".cmxa"]
+    },
+    {
+        "name": "Dart (Flutter)",
+        "detect": ["pubspec.yaml"],
+        "tool": "flutter",
+        "cmd_system": "DYNAMIC_DART_RESOLUTION",
+        "out_dirs": ["build/linux/x64/release/bundle", "build/web", "build/windows/x64/runner/Release"],
+        "out_exts": ["*DIR*", ".apk", ".aab", ".exe"]
+    },
+    {
+        "name": "Dart (pub)",
+        "detect": ["pubspec.yaml"],
+        "tool": "dart",
+        "cmd_system": "dart pub get && dart compile exe bin/main.dart -o build/main",
+        "out_dirs": ["build"],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "Nim (nimble)",
+        "detect": ["*.nimble"],
+        "tool": "nimble",
+        "cmd_system": "nimble build -d:release",
+        "out_dirs": ["bin", "."],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "Zig",
+        "detect": ["build.zig"],
+        "tool": "zig",
+        "cmd_system": "zig build -Doptimize=ReleaseFast",
+        "out_dirs": ["zig-out/bin", "zig-out/lib"],
+        "out_exts": ["", ".exe", ".so", ".dll"]
+    },
+    {
+        "name": "D (DUB)",
+        "detect": ["dub.json", "dub.sdl"],
+        "tool": "dub",
+        "cmd_system": "dub build --build=release",
+        "out_dirs": [".dub/build", "bin", "."],
+        "out_exts": ["", ".exe", ".so"]
+    },
+    {
+        "name": "Julia",
+        "detect": ["Project.toml", "Manifest.toml"],
+        "tool": "julia",
+        "cmd_system": "julia --project=. -e 'using Pkg; Pkg.instantiate()'",
+        "out_dirs": ["."],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "R (renv / DESCRIPTION)",
+        "detect": ["DESCRIPTION", "renv.lock"],
+        "tool": "Rscript",
+        "cmd_system": "Rscript -e 'renv::restore()'",
+        "out_dirs": ["renv", "."],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "Fortran (CMake / Make)",
+        "detect": ["CMakeLists.txt"],
+        "tool": "gfortran",
+        "cmd_system": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)",
+        "out_dirs": ["build", "bin"],
+        "out_exts": ["", ".exe", ".so"]
+    },
+    {
+        "name": "COBOL (GnuCOBOL)",
+        "detect": ["*.cob", "*.cbl"],
+        "tool": "cobc",
+        "cmd_system": "find . -name '*.cob' -o -name '*.cbl' | xargs cobc -x -o build/program",
+        "out_dirs": ["build", "."],
+        "out_exts": ["", ".exe"]
+    },
+    {
+        "name": "Lua (LuaRocks)",
+        "detect": ["*.rockspec"],
+        "tool": "luarocks",
+        "cmd_system": "luarocks make",
+        "out_dirs": ["."],
+        "out_exts": ["*DIR*", ".rock"]
+    },
+    {
+        "name": "Perl (CPAN / Makefile.PL)",
+        "detect": ["Makefile.PL", "Build.PL"],
+        "tool": "perl",
+        "cmd_system": "perl Makefile.PL && make",
+        "out_dirs": ["blib", "build"],
+        "out_exts": ["*DIR*", ".pm"]
+    },
+    {
+        "name": "WebAssembly (Emscripten)",
+        "detect": ["Makefile", "CMakeLists.txt"],
+        "tool": "emcc",
+        "cmd_system": "emmake make -j$(nproc)",
+        "out_dirs": ["build", "dist", "out"],
+        "out_exts": [".wasm", ".js", ".html"]
+    }
 ]
