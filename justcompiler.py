@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -28,9 +28,8 @@ def init_terminal_colors():
 def check_for_updates():
     """Silently checks GitHub for a newer version and updates files automatically."""
     current_dir = Path(__file__).resolve().parent
-    version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/master/version.txt"
+    version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/main/version.txt"
     
-    # Short timeout (1.5s) ensures the tool starts instantly even if offline
     try:
         with urllib.request.urlopen(version_url, timeout=1.5) as response:
             remote_version = response.read().decode('utf-8').strip()
@@ -39,15 +38,61 @@ def check_for_updates():
             print(f"{UI.CYAN}[INFO] New update found ({remote_version}). Downloading components...{UI.RESET}")
             files = ["justcompiler.py", "core.py", "engine.py", "baremetal.py", "plugins.json"]
             for file_name in files:
-                file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/master/{file_name}"
+                file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main/{file_name}"
                 with urllib.request.urlopen(file_url, timeout=5) as file_response:
                     (current_dir / file_name).write_bytes(file_response.read())
             
             print(f"{UI.GREEN}[OK] JustCompiler updated successfully to {remote_version}! Please restart the tool.{UI.RESET}")
             sys.exit(0)
     except Exception:
-        # Pass silently if offline, GitHub is rate-limiting, or version.txt is missing
         pass
+
+def handle_uninstall():
+    """Cleans up shell profiles/aliases and removes the installation directory."""
+    print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
+    confirm = input("Are you sure you want to uninstall JustCompiler? (y/n): ").strip().lower()
+    if confirm not in ['j', 'ja', 'y', 'yes']:
+        print("[INFO] Uninstallation cancelled. / Deïnstallatie geannuleerd.")
+        return
+
+    install_dir = Path.home() / ".justcompiler"
+    is_windows = platform.system() == "Windows"
+
+    # 1. Schoon het shell-profiel op (verwijder de alias/functie)
+    if is_windows:
+        try:
+            profile_path = subprocess.check_output(["powershell", "-NoProfile", "-Command", "$PROFILE"], text=True).strip()
+            p_path = Path(profile_path)
+            if p_path.exists():
+                lines = p_path.read_text(encoding="utf-8").splitlines()
+                new_lines = [line for line in lines if "justcompiler" not in line.lower()]
+                p_path.write_text("\n".join(new_lines), encoding="utf-8")
+                print(f"{UI.GREEN}[OK] Removed alias from PowerShell profile.{UI.RESET}")
+        except Exception as e:
+            print(f"{UI.YELLOW}[WARN] Could not automatically clean PowerShell profile: {e}{UI.RESET}")
+    else:
+        profiles = [Path.home() / ".zshrc", Path.home() / ".bashrc", Path.home() / ".profile"]
+        for p_path in profiles:
+            if p_path.exists():
+                try:
+                    lines = p_path.read_text(encoding="utf-8").splitlines()
+                    new_lines = [line for line in lines if "justcompiler" not in line.lower()]
+                    p_path.write_text("\n".join(new_lines), encoding="utf-8")
+                    print(f"{UI.GREEN}[OK] Removed alias from {p_path.name}.{UI.RESET}")
+                except Exception as e:
+                    print(f"{UI.YELLOW}[WARN] Could not clean {p_path.name}: {e}{UI.RESET}")
+
+    # 2. Verwijder de installatiemap via een vertraagd achtergrondproces
+    print("[INFO] Cleaning up installation files...")
+    if is_windows:
+        cmd = f"Start-Sleep -s 1; Remove-Item -Recurse -Force '{install_dir}'"
+        # 0x08000000 verbergt het opstartende venster op Windows (CREATE_NO_WINDOW)
+        subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd], creationflags=0x08000000)
+    else:
+        cmd = f"sleep 1 && rm -rf '{install_dir}'"
+        subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(f"{UI.GREEN}[OK] JustCompiler has been uninstalled. Please restart your terminal.{UI.RESET}")
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str):
     if not shutil.which("docker"):
@@ -68,7 +113,6 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 
     host_dir = Path(__file__).resolve().parent
 
-    # Initialize plugins configuration if missing
     plugins_path = host_dir / "plugins.json"
     if not plugins_path.exists():
         default_plugins = [
@@ -88,15 +132,12 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && npm install -g pnpm yarn && rm -rf /var/lib/apt/lists/*
-
-# --- FIX VOOR PYTHON PYINSTALLER ---
 RUN pip3 install --break-system-packages pyinstaller setuptools wheel cx_Freeze
-
 WORKDIR /workspace
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
-ENTRYPOINT ["python3", "/workspace/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
+ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     
@@ -114,7 +155,6 @@ ENTRYPOINT ["python3", "/workspace/workspace/engine.py", "--src", "/workspace/sr
 
     UI.success(t('sandbox_ready'))
 
-    # Setup caching directories
     home = Path.home()
     cache_dirs = {
         "gradle": home / ".gradle", "maven": home / ".m2", "npm": home / ".npm",
@@ -171,7 +211,13 @@ def handle_remote_git(url: str) -> Path:
 
 if __name__ == "__main__":
     init_terminal_colors()
-    check_for_updates() # Voert de stille update check direct uit bij de start
+
+    # --- DIRECTE UNINSTALL CHECK (VÓÓR UPDATES/ARGPARSE) ---
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "uninstall":
+        handle_uninstall()
+        sys.exit(0)
+
+    check_for_updates()
 
     parser = argparse.ArgumentParser(description="JustCompiler CLI")
     parser.add_argument("--local-runtime", action="store_true", help="Force local bare-metal execution")
