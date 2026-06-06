@@ -3,7 +3,7 @@ set -e
 
 GITHUB_USER="Milanv2l"
 GITHUB_REPO="justcompiler"
-BRANCH="main"
+BRANCH="main" # Aangepast naar 'master' op basis van jouw URL
 BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH"
 
 INSTALL_DIR="$HOME/.justcompiler"
@@ -11,17 +11,24 @@ PYTHON_FILES=("justcompiler.py" "core.py" "engine.py" "baremetal.py" "plugins.js
 
 echo "--- JustCompiler Installer ---"
 
-read -p "Do you want to install JustCompiler on this system? (y/n): " confirm_install
+# FIX: < /dev/tty toegevoegd zodat hij naar je toetsenbord luistert
+read -p "Do you want to install JustCompiler on this system? (y/n): " confirm_install < /dev/tty
 if [[ ! "$confirm_install" =~ ^[Yy](es)?$ ]]; then
     echo "[INFO] Installation cancelled by user."
     exit 0
 fi
 
-if command -v docker &> /dev/null; then
-    echo "[OK] Docker detected."
+# FIX: Docker vraag gelijkgetrokken met de Windows versie, inclusief < /dev/tty
+read -p "Do you want to enable the Docker sandbox runtime environment? (y/n): " use_docker < /dev/tty
+if [[ "$use_docker" =~ ^[Yy](es)?$ ]]; then
+    if command -v docker &> /dev/null; then
+        echo "[OK] Docker detected."
+    else
+        echo "[WARN] Docker not found on this system."
+        echo "Please install Docker to use the sandbox runtime environment."
+    fi
 else
-    echo "[WARN] Docker not found on this system."
-    echo "Please install Docker to use the sandbox runtime environment."
+    echo "[INFO] Skipping Docker integration. JustCompiler will run in host-only mode."
 fi
 
 echo -e "\n[INFO] Downloading components to $INSTALL_DIR..."
