@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -58,21 +58,17 @@ def handle_uninstall():
     install_dir = Path.home() / ".justcompiler"
     is_windows = platform.system() == "Windows"
 
-    # --- NIEUW: DOCKER SANBOX IMAGE VERWIJDEREN ---
     if shutil.which("docker"):
         print("[INFO] Cleaning up Docker sandbox components...")
         docker_cmd = ["docker"]
         if not is_windows:
-            # Controleren of Docker sudo-rechten vereist op deze machine
             if subprocess.run(["docker", "ps"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
                 print("[INFO] Docker requires sudo privileges to remove the image.")
                 docker_cmd = ["sudo", "docker"]
         
-        # Verwijder de image (en forceer eventueel gekoppelde containers)
         subprocess.run(docker_cmd + ["rmi", "-f", "justcompiler-engine"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"{UI.GREEN}[OK] Docker image 'justcompiler-engine' successfully removed.{UI.RESET}")
 
-    # 1. Schoon het shell-profiel op (verwijder de alias/functie)
     if is_windows:
         try:
             profile_path = subprocess.check_output(["powershell", "-NoProfile", "-Command", "$PROFILE"], text=True).strip()
@@ -96,7 +92,6 @@ def handle_uninstall():
                 except Exception as e:
                     print(f"{UI.YELLOW}[WARN] Could not clean {p_path.name}: {e}{UI.RESET}")
 
-    # 2. Verwijder de installatiemap via een vertraagd achtergrondproces
     print("[INFO] Cleaning up installation files...")
     if is_windows:
         cmd = f"Start-Sleep -s 1; Remove-Item -Recurse -Force '{install_dir}'"
@@ -145,7 +140,14 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && npm install -g pnpm yarn && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --break-system-packages pyinstaller setuptools wheel cx_Freeze
+
+# --- VEILIGE PYTHON VIRTUAL ENVIRONMENT ---
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install pyinstaller cx_Freeze
+
 WORKDIR /workspace
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
