@@ -29,7 +29,7 @@ class UI:
     def error(msg: str):
         print(f"{UI.RED}[ERROR] {msg}{UI.RESET}")
 
-# Professional, clean CLI terminology (No emojis, no hype)
+# Professional, clean CLI terminology
 _TRANSLATIONS = {
     "en": {
         "title": "JustCompiler CLI",
@@ -51,6 +51,7 @@ _TRANSLATIONS = {
         "err_files": "Required core components are missing in the installation directory.",
         "sandbox_prep": "Preparing Docker sandbox environment...",
         "sandbox_ready": "Sandbox environment initialized successfully.",
+        "docker_start": "Starting Docker container...",
         "git_clone": "Cloning remote repository...",
         "git_fail": "Failed to clone the specified repository.",
         "err_dir": "The target directory does not exist.",
@@ -75,6 +76,7 @@ _TRANSLATIONS = {
         "err_files": "Vereiste kernbestanden ontbreken in de installatiemap.",
         "sandbox_prep": "Docker sandbox-omgeving voorbereiden...",
         "sandbox_ready": "Sandbox-omgeving succesvol geïnitialiseerd.",
+        "docker_start": "Docker container wordt gestart...",
         "git_clone": "Externe repository klonen...",
         "git_fail": "Klonen van de opgegeven repository mislukt.",
         "err_dir": "De doelmap bestaat niet.",
