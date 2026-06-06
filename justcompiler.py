@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -48,7 +48,7 @@ def check_for_updates():
         pass
 
 def handle_uninstall():
-    """Cleans up shell profiles/aliases and removes the installation directory."""
+    """Cleans up shell profiles, removes Docker images, and deletes the installation directory."""
     print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
     confirm = input("Are you sure you want to uninstall JustCompiler? (y/n): ").strip().lower()
     if confirm not in ['j', 'ja', 'y', 'yes']:
@@ -57,6 +57,20 @@ def handle_uninstall():
 
     install_dir = Path.home() / ".justcompiler"
     is_windows = platform.system() == "Windows"
+
+    # --- NIEUW: DOCKER SANBOX IMAGE VERWIJDEREN ---
+    if shutil.which("docker"):
+        print("[INFO] Cleaning up Docker sandbox components...")
+        docker_cmd = ["docker"]
+        if not is_windows:
+            # Controleren of Docker sudo-rechten vereist op deze machine
+            if subprocess.run(["docker", "ps"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+                print("[INFO] Docker requires sudo privileges to remove the image.")
+                docker_cmd = ["sudo", "docker"]
+        
+        # Verwijder de image (en forceer eventueel gekoppelde containers)
+        subprocess.run(docker_cmd + ["rmi", "-f", "justcompiler-engine"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{UI.GREEN}[OK] Docker image 'justcompiler-engine' successfully removed.{UI.RESET}")
 
     # 1. Schoon het shell-profiel op (verwijder de alias/functie)
     if is_windows:
@@ -86,13 +100,12 @@ def handle_uninstall():
     print("[INFO] Cleaning up installation files...")
     if is_windows:
         cmd = f"Start-Sleep -s 1; Remove-Item -Recurse -Force '{install_dir}'"
-        # 0x08000000 verbergt het opstartende venster op Windows (CREATE_NO_WINDOW)
         subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd], creationflags=0x08000000)
     else:
         cmd = f"sleep 1 && rm -rf '{install_dir}'"
         subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    print(f"{UI.GREEN}[OK] JustCompiler has been uninstalled. Please restart your terminal.{UI.RESET}")
+    print(f"{UI.GREEN}[OK] JustCompiler has been completely uninstalled. Please restart your terminal.{UI.RESET}")
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str):
     if not shutil.which("docker"):
@@ -212,7 +225,6 @@ def handle_remote_git(url: str) -> Path:
 if __name__ == "__main__":
     init_terminal_colors()
 
-    # --- DIRECTE UNINSTALL CHECK (VÓÓR UPDATES/ARGPARSE) ---
     if len(sys.argv) > 1 and sys.argv[1].lower() == "uninstall":
         handle_uninstall()
         sys.exit(0)
