@@ -194,7 +194,8 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     if run_tests: 
         run_cmd.append("--test")
 
-    UI.info(f"Launching container: {' '.join(run_cmd)}")
+    # --- HIER IS DE LELIJKE LOG AANGEPAST ---
+    UI.info(t('docker_start'))
 
     try:
         result = subprocess.run(run_cmd)
