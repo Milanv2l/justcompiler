@@ -56,10 +56,14 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    dockerfile_content = """FROM ubuntu:24.04
+dockerfile_content = """FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && npm install -g pnpm yarn && rm -rf /var/lib/apt/lists/*
+
+# --- FIX VOOR PYTHON PYINSTALLER ---
+RUN pip3 install --break-system-packages pyinstaller setuptools wheel cx_Freeze
+
 WORKDIR /workspace
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
