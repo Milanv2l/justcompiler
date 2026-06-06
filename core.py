@@ -14,6 +14,8 @@ class UI:
     RED = "\033[31m"
     BLUE = "\033[34m"
     RESET = "\033[0m"
+    HEADER = "\033[95m"
+    BOLD = "\033[1m"
 
     # --- OUDE LOG METHODE (nodig voor engine.py) ---
     @classmethod
@@ -43,89 +45,137 @@ _TRANSLATIONS = {
         "title": "JustCompiler CLI",
         "menu_1": "  1. Compile local workspace",
         "menu_2": "  2. Compile remote Git repository",
-        "menu_3": "  3. Exit",
-        "choice_prompt": "Select an option [1-3]: ",
-        "path_prompt": "Enter project path (Leave empty for current directory): ",
-        "git_prompt": "Enter Git repository URL: ",
-        "test_prompt": "Run unit tests if available? (y/n): ",
-        "env_title": "Select Execution Environment:",
-        "env_1": "  1. Docker Sandbox (Recommended / Isolated)",
-        "env_2": "  2. Local Host (Bare-metal / Requires local tools)",
-        "env_choice": "Select environment [1-2]: ",
-        "err_docker": "Docker is not installed or not running.",
-        "err_sudo": "Docker requires elevated privileges on this system.",
-        "sudo_prompt": "Please authenticate for sudo: ",
-        "err_auth": "Sudo authentication failed.",
-        "err_files": "Required core components are missing in the installation directory.",
-        "sandbox_prep": "Preparing Docker sandbox environment...",
-        "sandbox_ready": "Sandbox environment initialized successfully.",
-        "docker_start": "Starting Docker container...",
-        "git_clone": "Cloning remote repository...",
-        "git_fail": "Failed to clone the specified repository.",
-        "err_dir": "The target directory does not exist.",
+        "menu_3": "  3. Exit Application",
+        "choice_prompt": "Enter choice [1-3]: ",
+        "path_prompt": "Local workspace path (Leave empty for current directory): ",
+        "git_prompt": "Remote Git URL (HTTPS): ",
+        "test_prompt": "Run tests automatically during build? (y/n): ",
+        "runtime_prompt": "Execute in Docker Sandbox? (Otherwise Bare-Metal) (y/n): ",
+        "err_dir": "Invalid target path or directory does not exist.",
+        "cloning": "Cloning repository into temporary workspace...",
+        "clone_fail": "Failed to clone remote repository.",
         
-        # --- ENGINE TRANSLATIONS ---
-        "act_scan": "Scanning    ",
-        "act_detect": "Detected    ",
-        "act_build": "Building    ",
-        "act_compile": "Compiled    ",
-        "act_save": "Saved       ",
-        "act_retry": "Retry       ",
-        "act_fail": "Failed      ",
+        # Core Engine / UI Text strings used by engine.py
+        "act_scan": "Scanning     ",
+        "req_msg": "Version: {req}",
+        "act_detected": "Detected    ",
+        "act_test": "Testing     ",
+        "act_verify": "Verified    ",
+        "act_ready": "Ready       ",
+        "act_saved": "Saved       ",
+        "test_fail_abort": "Tests failed. Aborting build for {name}.",
+        "test_success": "Tests passed successfully.",
+        "compile_fail": "Compilation failed completely.",
+        "fallback_msg": "Attempting fallback strategy...",
+        "err_output_title": "Error Output:",
+        "report_header": "=== BUILD REPORT ===",
+        "report_status": "{green}{success} Succeeded{reset} | {red}{failed} Failed{reset} | {yellow}{skipped} Skipped{reset} | {time}s",
     },
     "nl": {
         "title": "JustCompiler CLI",
         "menu_1": "  1. Lokale workspace compileren",
         "menu_2": "  2. Externe Git repository compileren",
-        "menu_3": "  3. Afsluiten",
-        "choice_prompt": "Selecteer een optie [1-3]: ",
-        "path_prompt": "Voer projectpad in (Leeg laten voor huidige map): ",
-        "git_prompt": "Voer Git repository URL in: ",
-        "test_prompt": "Unit tests uitvoeren indien beschikbaar? (j/n): ",
-        "env_title": "Selecteer Executie-omgeving:",
-        "env_1": "  1. Docker Sandbox (Aanbevolen / Geïsoleerd)",
-        "env_2": "  2. Lokale Host (Bare-metal / Vereist lokale tools)",
-        "env_choice": "Selecteer omgeving [1-2]: ",
-        "err_docker": "Docker is niet geïnstalleerd of is niet actief.",
-        "err_sudo": "Docker vereist verhoogde rechten op dit systeem.",
-        "sudo_prompt": "Verifieer uw identiteit voor sudo: ",
-        "err_auth": "Sudo-authenticatie mislukt.",
-        "err_files": "Vereiste kernbestanden ontbreken in de installatiemap.",
-        "sandbox_prep": "Docker sandbox-omgeving voorbereiden...",
-        "sandbox_ready": "Sandbox-omgeving succesvol geïnitialiseerd.",
-        "docker_start": "Docker container wordt gestart...",
-        "git_clone": "Externe repository klonen...",
-        "git_fail": "Klonen van de opgegeven repository mislukt.",
-        "err_dir": "De doelmap bestaat niet.",
-
-        # --- ENGINE TRANSLATIONS ---
-        "act_scan": "Scannen     ",
-        "act_detect": "Gevonden    ",
-        "act_build": "Bouwen      ",
-        "act_compile": "Voltooid    ",
-        "act_save": "Opgeslagen  ",
-        "act_retry": "Opnieuw     ",
-        "act_fail": "Mislukt     ",
+        "menu_3": "  3. Applicatie Afsluiten",
+        "choice_prompt": "Voer keuze in [1-3]: ",
+        "path_prompt": "Lokaal workspace pad (Leeg laten voor huidige map): ",
+        "git_prompt": "Externe Git URL (HTTPS): ",
+        "test_prompt": "Tests automatisch uitvoeren tijdens build? (j/n): ",
+        "runtime_prompt": "Uitvoeren in Docker Sandbox? (Anders Bare-Metal) (j/n): ",
+        "err_dir": "Ongeldig doelpad of map bestaat niet.",
+        "cloning": "Repository klonen naar tijdelijke workspace...",
+        "clone_fail": "Kan de externe repository niet klonen.",
+        
+        # Core Engine / UI Text strings used by engine.py
+        "act_scan": "Scannen      ",
+        "req_msg": "Versie: {req}",
+        "act_detected": "Gevonden    ",
+        "act_test": "Testen      ",
+        "act_verify": "Geverifieerd",
+        "act_ready": "Klaar       ",
+        "act_saved": "Opgeslagen  ",
+        "test_fail_abort": "Tests mislukt. Build afgebroken voor {name}.",
+        "test_success": "Alle tests succesvol doorstaan.",
+        "compile_fail": "Compilatie volledig mislukt.",
+        "fallback_msg": "Terugvallen op alternatieve strategie...",
+        "err_output_title": "Foutmelding(en):",
+        "report_header": "=== BUILD RAPPORT ===",
+        "report_status": "{green}{success} Voltooid{reset} | {red}{failed} Mislukt{reset} | {yellow}{skipped} Overgeslagen{reset} | {time}s",
     }
 }
 
 def set_lang(lang: str):
-    """Sets the global language for the interface."""
+    """Sets the global language context for the CLI."""
     global _CURRENT_LANG
     if lang in _TRANSLATIONS:
         _CURRENT_LANG = lang
 
-def t(key: str) -> str:
-    """Retrieves the localized string for a given key."""
-    return _TRANSLATIONS[_CURRENT_LANG].get(key, key)
+def t(key: str, **kwargs) -> str:
+    """Retrieves the localized string for a given key, supporting format kwargs."""
+    text = _TRANSLATIONS[_CURRENT_LANG].get(key, key)
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except KeyError:
+            return text
+    return text
+
 
 class DependencyManager:
     """Handles automatic dependency resolution for various languages before compilation."""
     
     def __init__(self, auto_install: bool = True):
         self.auto_install = auto_install
+        # Check om te zien of we binnen een Docker sandbox draaien
+        self.in_docker = Path('/.dockerenv').exists()
+
+    def inspect_version(self, root: Path, tool: str) -> str:
+        """Checks the CLI version of a specific compiler/tool."""
+        if not shutil.which(tool):
+            return "Not Installed"
+        try:
+            result = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=3)
+            if result.returncode == 0 and result.stdout:
+                # Retoneer alleen de eerste schone zin voor de logs
+                return result.stdout.split('\n')[0][:35].strip()
+        except Exception:
+            pass
+        return "Unknown Version"
+
+    def get_pkg_manager(self) -> str:
+        """Determines which package manager is available on the current platform."""
+        if shutil.which("apt-get"): return "apt"
+        if shutil.which("dnf"): return "dnf"
+        if shutil.which("brew"): return "brew"
+        return "unknown"
+
+    def trigger_install(self, tool: str) -> bool:
+        """Automatically installs missing system tools if auto_install is authorized."""
+        if not self.auto_install:
+            return False
+            
+        UI.warn(f"Attempting automatic installation for '{tool}'...")
+        pkg_mgr = self.get_pkg_manager()
+        
+        # Package mapping voor bekende CLI-omgevingen (zoals Ubuntu 24.04 Docker)
+        pkg = tool
+        if tool == "mvn": pkg = "maven"
+        elif tool in ["gradlew", "gradle"]: pkg = "gradle"
+        elif tool in ["java", "javac"]: pkg = "openjdk-21-jdk"
+
+        if pkg_mgr == "apt" and os.geteuid() == 0:
+            subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return res.returncode == 0
+            
+        return False
+
+    def cleanup(self):
+        """Post-build cleanup actions."""
+        # Tijdelijke placeholder voor post-build taken (bijv. cache legen)
+        pass
 
     def resolve_dependencies(self, target_dir: Path):
+        """Resolves project dependencies locally for supported package managers."""
         if not self.auto_install:
             return
 
@@ -138,18 +188,11 @@ class DependencyManager:
                 ["pip3", "install", "-r", "requirements.txt"], 
                 cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-
+        
         # 2. Node.js
         if (target_dir / "package.json").exists():
-            if (target_dir / "yarn.lock").exists():
-                UI.info("Resolving Node.js dependencies via yarn...")
-                subprocess.run(["yarn", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            elif (target_dir / "pnpm-lock.yaml").exists():
-                UI.info("Resolving Node.js dependencies via pnpm...")
-                subprocess.run(["pnpm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                UI.info("Resolving Node.js dependencies via npm...")
-                subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            UI.info("Resolving Node.js dependencies via npm...")
+            subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # 3. Go
         if (target_dir / "go.mod").exists():
@@ -173,4 +216,4 @@ class DependencyManager:
             UI.info("Resolving Java (Gradle) dependencies...")
             wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
             cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
-            subprocess.run([cmd, "dependencies"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run([cmd, "build", "-x", "test"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
