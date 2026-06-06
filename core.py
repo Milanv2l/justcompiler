@@ -11,8 +11,15 @@ class UI:
     YELLOW = "\033[33m"
     GREEN = "\033[32m"
     RED = "\033[31m"
+    BLUE = "\033[34m"
     RESET = "\033[0m"
 
+    # --- OUDE LOG METHODE (nodig voor engine.py) ---
+    @classmethod
+    def log(cls, color, prefix, msg):
+        print(f"{color}{prefix}{cls.RESET} {msg}")
+
+    # --- NIEUWE LOG METHODES (nodig voor justcompiler.py) ---
     @staticmethod
     def info(msg: str):
         print(f"[INFO] {msg}")
@@ -55,6 +62,15 @@ _TRANSLATIONS = {
         "git_clone": "Cloning remote repository...",
         "git_fail": "Failed to clone the specified repository.",
         "err_dir": "The target directory does not exist.",
+        
+        # --- ENGINE TRANSLATIONS ---
+        "act_scan": "Scanning    ",
+        "act_detect": "Detected    ",
+        "act_build": "Building    ",
+        "act_compile": "Compiled    ",
+        "act_save": "Saved       ",
+        "act_retry": "Retry       ",
+        "act_fail": "Failed      ",
     },
     "nl": {
         "title": "JustCompiler CLI",
@@ -80,6 +96,15 @@ _TRANSLATIONS = {
         "git_clone": "Externe repository klonen...",
         "git_fail": "Klonen van de opgegeven repository mislukt.",
         "err_dir": "De doelmap bestaat niet.",
+
+        # --- ENGINE TRANSLATIONS ---
+        "act_scan": "Scannen     ",
+        "act_detect": "Gevonden    ",
+        "act_build": "Bouwen      ",
+        "act_compile": "Voltooid    ",
+        "act_save": "Opgeslagen  ",
+        "act_retry": "Opnieuw     ",
+        "act_fail": "Mislukt     ",
     }
 }
 
@@ -93,15 +118,12 @@ def t(key: str) -> str:
     """Retrieves the localized string for a given key."""
     return _TRANSLATIONS[_CURRENT_LANG].get(key, key)
 
-
 class DependencyManager:
     """Handles automatic dependency resolution for various languages before compilation."""
     
-    # FIX: Accepteer de auto_install parameter uit engine.py!
     def __init__(self, auto_install: bool = True):
         self.auto_install = auto_install
 
-    # FIX: Deze methode is nu gekoppeld aan de instantie ('self' toegevoegd)
     def resolve_dependencies(self, target_dir: Path):
         if not self.auto_install:
             return
