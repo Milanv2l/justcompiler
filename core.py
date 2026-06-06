@@ -1,3 +1,8 @@
+import os
+import sys
+import subprocess
+from pathlib import Path
+
 _CURRENT_LANG = "en"
 
 class UI:
@@ -85,3 +90,55 @@ def set_lang(lang: str):
 def t(key: str) -> str:
     """Retrieves the localized string for a given key."""
     return _TRANSLATIONS[_CURRENT_LANG].get(key, key)
+
+
+class DependencyManager:
+    """Handles automatic dependency resolution for various languages before compilation."""
+    
+    @staticmethod
+    def resolve_dependencies(target_dir: Path):
+        target_dir = Path(target_dir)
+
+        # 1. Python
+        if (target_dir / "requirements.txt").exists():
+            UI.info("Resolving Python dependencies via pip...")
+            subprocess.run(
+                ["pip3", "install", "-r", "requirements.txt"], 
+                cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+
+        # 2. Node.js
+        if (target_dir / "package.json").exists():
+            if (target_dir / "yarn.lock").exists():
+                UI.info("Resolving Node.js dependencies via yarn...")
+                subprocess.run(["yarn", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif (target_dir / "pnpm-lock.yaml").exists():
+                UI.info("Resolving Node.js dependencies via pnpm...")
+                subprocess.run(["pnpm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                UI.info("Resolving Node.js dependencies via npm...")
+                subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 3. Go
+        if (target_dir / "go.mod").exists():
+            UI.info("Resolving Go dependencies...")
+            subprocess.run(["go", "mod", "tidy"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["go", "mod", "download"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 4. Rust
+        if (target_dir / "Cargo.toml").exists():
+            UI.info("Fetching Rust dependencies via Cargo...")
+            subprocess.run(["cargo", "fetch"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 5. Java (Maven / Gradle)
+        if (target_dir / "pom.xml").exists():
+            UI.info("Resolving Java (Maven) dependencies...")
+            wrapper = "mvnw" if os.name == "nt" else "./mvnw"
+            cmd = wrapper if (target_dir / "mvnw").exists() else "mvn"
+            subprocess.run([cmd, "dependency:resolve"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+        if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists():
+            UI.info("Resolving Java (Gradle) dependencies...")
+            wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
+            cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
+            subprocess.run([cmd, "dependencies"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
