@@ -97,8 +97,15 @@ def t(key: str) -> str:
 class DependencyManager:
     """Handles automatic dependency resolution for various languages before compilation."""
     
-    @staticmethod
-    def resolve_dependencies(target_dir: Path):
+    # FIX: Accepteer de auto_install parameter uit engine.py!
+    def __init__(self, auto_install: bool = True):
+        self.auto_install = auto_install
+
+    # FIX: Deze methode is nu gekoppeld aan de instantie ('self' toegevoegd)
+    def resolve_dependencies(self, target_dir: Path):
+        if not self.auto_install:
+            return
+
         target_dir = Path(target_dir)
 
         # 1. Python
