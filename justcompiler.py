@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.7"
+VERSION = "1.0.9"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -20,7 +20,6 @@ def init_terminal_colors():
         try:
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
             kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
         except Exception:
             pass
@@ -136,11 +135,13 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    # --- ULTIMATE DOCKERFILE ---
-    # Bevat nu unzip, zip, wget, jq, npm, pnpm en yarn voor maximale compatibiliteit
-    dockerfile_content = """FROM ubuntu:24.04
+    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE ---
+    dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file npm && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
+
+# Installeer de up-to-date Node.js 22 LTS lijn via NodeSource voor een schone npm op Ubuntu 26.04
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
 RUN apt-file update
 RUN npm install -g pnpm yarn
 
@@ -161,7 +162,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
-        with UI.spinner("Initializing Docker Sandbox Environment..."):
+        with UI.spinner("Building Modern Ubuntu 26.04 LTS Sandbox Environment..."):
             build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if build_result.returncode != 0:
                 UI.error("Docker build failed.")
@@ -172,7 +173,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
 
     UI.success(t('act_ready'))
 
-    # --- GEAVANCEERDE CACHE MAPPING ---
     home = Path.home()
     cache_dirs = {
         "gradle": home / ".gradle", 
@@ -187,13 +187,12 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         "go_build": home / ".cache" / "go-build"
     }
     
-    # Maak alle cache mappen lokaal aan als ze niet bestaan
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
     run_cmd = docker_cmd + [
         "run", "--rm",
-        "--name", "justcompiler_active_run", # Handig voor geforceerde cleanup
+        "--name", "justcompiler_active_run",
         "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{target_path.resolve()}:/workspace/src:z",
         "-v", f"{artifacts_path.resolve()}:/workspace/artifacts:z",
