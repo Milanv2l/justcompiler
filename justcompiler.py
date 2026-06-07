@@ -13,7 +13,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.7"
+VERSION = "1.1.8"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
@@ -200,12 +200,16 @@ RUN pip install --upgrade pip setuptools wheel
 RUN pip install pyinstaller cx_Freeze
 
 WORKDIR /workspace
+
+# DE FIX: Maak de map definitief aan tijdens het bouwen van de image
+RUN mkdir -p /workspace/artifacts
+
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
 
-# CRUCIALE FIX: Zorg dat /workspace/artifacts gegarandeerd bestaat vóór engine.py start!
-ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && python3 /workspace/engine.py --src /workspace/src --out /workspace/artifacts \\"$@\\"", "--"]
+# Standaard en schone entrypoint zonder bash trucs
+ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     
