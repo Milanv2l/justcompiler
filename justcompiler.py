@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.0"
+VERSION = "1.1.2"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -65,8 +65,12 @@ def handle_uninstall():
                 print("[INFO] Docker requires sudo privileges to remove the image.")
                 docker_cmd = ["sudo", "docker"]
         
-        subprocess.run(docker_cmd + ["rmi", "-f", "justcompiler-engine"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"{UI.GREEN}[OK] Docker image 'justcompiler-engine' successfully removed.{UI.RESET}")
+        # Verwijder alle versies van de justcompiler engine
+        get_images = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "-q"], capture_output=True, text=True)
+        if get_images.stdout.strip():
+            for img_id in get_images.stdout.splitlines():
+                subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{UI.GREEN}[OK] All JustCompiler Docker images successfully removed.{UI.RESET}")
 
     if is_windows:
         try:
@@ -135,20 +139,37 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE (Bulletproof Edition) ---
+    # Definieer de image tag op basis van de huidige scriptversie
+    image_tag = f"justcompiler-engine:{VERSION}"
+
+    # --- AUTOMATISCH OPSCHONEN VAN OUDE VERSIES ---
+    check_image = subprocess.run(docker_cmd + ["images", "-q", image_tag], capture_output=True, text=True)
+    if not check_image.stdout.strip():
+        with UI.spinner("Nieuwe scriptversie gedetecteerd! Oude Docker-omgevingen worden opgeruimd..."):
+            get_images = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "-q"], capture_output=True, text=True)
+            if get_images.stdout.strip():
+                for img_id in get_images.stdout.splitlines():
+                    subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE (Tauri/GTK Compatible Edition) ---
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
 
-# Installeer de up-to-date Node.js 22 LTS lijn via NodeSource voor een schone npm op Ubuntu 26.04
+RUN apt-get update && apt-get install -y \\
+    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
+    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
+    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
+    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
+    pkg-config libxdo-dev libgdk-pixbuf2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
 RUN apt-file update
 RUN npm install -g pnpm yarn
 
-# Installeer .NET SDK via het officiele Microsoft script om Ubuntu 26.04 naamgevingsproblemen te omzeilen
 RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh && chmod +x dotnet-install.sh && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && rm dotnet-install.sh
 
-# --- VEILIGE PYTHON VIRTUAL ENVIRONMENT ---
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -166,12 +187,10 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         with UI.spinner("Building Modern Ubuntu 26.04 LTS Sandbox Environment..."):
-            build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], capture_output=True, text=True)
+            build_result = subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)], capture_output=True, text=True)
             if build_result.returncode != 0:
                 UI.error("Docker build failed! Dit is wat er misging:")
                 print(f"{UI.RED}{build_result.stderr}{UI.RESET}")
-                print(f"{UI.YELLOW}Standard Output (Last 10 lines):{UI.RESET}")
-                print('\n'.join(build_result.stdout.splitlines()[-10:]))
                 return
     finally:
         if dockerfile_path.exists():
@@ -212,16 +231,31 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         "-v", f"{cache_dirs['cargo_git']}:/root/.cargo/git:z",
         "-v", f"{cache_dirs['go_pkg']}:/root/go/pkg:z",
         "-v", f"{cache_dirs['go_build']}:/root/.cache/go-build:z",
-        "justcompiler-engine",
+        image_tag,
         "--lang", lang
     ]
     if run_tests: 
         run_cmd.append("--test")
 
+    # --- COMPILATIE MET MOOIE LAAD-SPINNER ---
     try:
-        result = subprocess.run(run_cmd)
+        with UI.spinner("Project aan het compileren in de veilige sandbox..."):
+            result = subprocess.run(run_cmd, capture_output=True, text=True)
+            
         if result.returncode != 0:
-            UI.error(f"Container exited unexpectedly with code: {result.returncode}")
+            UI.error("Compilatie mislukt! Dit is de foutmelding van de compiler:")
+            if result.stderr:
+                print(f"{UI.RED}{result.stderr}{UI.RESET}")
+            if result.stdout:
+                print(f"{UI.YELLOW}Gedetailleerd compiler-logboek:{UI.RESET}")
+                print(result.stdout)
+        else:
+            UI.success("Compilatie succesvol afgerond!")
+            if result.stdout:
+                print(f"{UI.CYAN}Resultaten / Output info:{UI.RESET}")
+                # Toon de laatste paar regels van het logboek (waar de bestanden staan opgeslagen)
+                print('\n'.join(result.stdout.splitlines()[-8:]))
+                
     except KeyboardInterrupt:
         UI.warn("Build aborted by user. Cleaning up sandbox...")
         subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
