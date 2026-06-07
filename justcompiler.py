@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.9"
+VERSION = "1.1.0"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -135,15 +135,18 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE ---
+    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE (Bulletproof Edition) ---
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
 
 # Installeer de up-to-date Node.js 22 LTS lijn via NodeSource voor een schone npm op Ubuntu 26.04
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
 RUN apt-file update
 RUN npm install -g pnpm yarn
+
+# Installeer .NET SDK via het officiele Microsoft script om Ubuntu 26.04 naamgevingsproblemen te omzeilen
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh && chmod +x dotnet-install.sh && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && rm dotnet-install.sh
 
 # --- VEILIGE PYTHON VIRTUAL ENVIRONMENT ---
 ENV VIRTUAL_ENV=/opt/venv
@@ -163,7 +166,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         with UI.spinner("Building Modern Ubuntu 26.04 LTS Sandbox Environment..."):
-            # --- DEZE REGEL IS AANGEPAST VOOR ZICHTBARE FOUTMELDINGEN ---
             build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], capture_output=True, text=True)
             if build_result.returncode != 0:
                 UI.error("Docker build failed! Dit is wat er misging:")
