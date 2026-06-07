@@ -136,11 +136,13 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    # --- NIEUW: apt-file is toegevoegd en apt-file update wordt uitgevoerd ---
+    # --- ULTIMATE DOCKERFILE ---
+    # Bevat nu unzip, zip, wget, jq, npm, pnpm en yarn voor maximale compatibiliteit
     dockerfile_content = """FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file npm && rm -rf /var/lib/apt/lists/*
 RUN apt-file update
+RUN npm install -g pnpm yarn
 
 # --- VEILIGE PYTHON VIRTUAL ENVIRONMENT ---
 ENV VIRTUAL_ENV=/opt/venv
@@ -170,24 +172,41 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
 
     UI.success(t('act_ready'))
 
+    # --- GEAVANCEERDE CACHE MAPPING ---
     home = Path.home()
     cache_dirs = {
-        "gradle": home / ".gradle", "maven": home / ".m2", "npm": home / ".npm",
-        "pip": home / ".cache" / "pip", "cargo": home / ".cargo" / "registry"
+        "gradle": home / ".gradle", 
+        "maven": home / ".m2", 
+        "npm": home / ".npm",
+        "pnpm": home / ".local" / "share" / "pnpm" / "store",
+        "yarn": home / ".yarn" / "cache",
+        "pip": home / ".cache" / "pip", 
+        "cargo_registry": home / ".cargo" / "registry",
+        "cargo_git": home / ".cargo" / "git",
+        "go_pkg": home / "go" / "pkg",
+        "go_build": home / ".cache" / "go-build"
     }
+    
+    # Maak alle cache mappen lokaal aan als ze niet bestaan
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
     run_cmd = docker_cmd + [
         "run", "--rm",
+        "--name", "justcompiler_active_run", # Handig voor geforceerde cleanup
         "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{target_path.resolve()}:/workspace/src:z",
         "-v", f"{artifacts_path.resolve()}:/workspace/artifacts:z",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
         "-v", f"{cache_dirs['npm']}:/root/.npm:z",
+        "-v", f"{cache_dirs['pnpm']}:/root/.local/share/pnpm/store:z",
+        "-v", f"{cache_dirs['yarn']}:/root/.yarn/cache:z",
         "-v", f"{cache_dirs['pip']}:/root/.cache/pip:z",
-        "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
+        "-v", f"{cache_dirs['cargo_registry']}:/root/.cargo/registry:z",
+        "-v", f"{cache_dirs['cargo_git']}:/root/.cargo/git:z",
+        "-v", f"{cache_dirs['go_pkg']}:/root/go/pkg:z",
+        "-v", f"{cache_dirs['go_build']}:/root/.cache/go-build:z",
         "justcompiler-engine",
         "--lang", lang
     ]
@@ -199,7 +218,8 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         if result.returncode != 0:
             UI.error(f"Container exited unexpectedly with code: {result.returncode}")
     except KeyboardInterrupt:
-        UI.warn("Build aborted by user.")
+        UI.warn("Build aborted by user. Cleaning up sandbox...")
+        subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     finally:
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
