@@ -5,6 +5,7 @@ import shutil
 import argparse
 import platform
 import json
+import threading
 from pathlib import Path
 import urllib.request
 import core
@@ -12,7 +13,21 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.4"
+VERSION = "1.1.5"
+
+# Globale statusvariabele voor de sneltoets-announcer
+CURRENT_STATUS = "Opstarten... / Starting up..."
+
+def status_reporter_loop():
+    """Luistert op de achtergrond naar de 's' toets om de status te melden."""
+    global CURRENT_STATUS
+    while True:
+        try:
+            user_input = input().strip().lower()
+            if user_input == 's':
+                print(f"\n{UI.CYAN}[JUSTCOMPILER STATUS]: {CURRENT_STATUS}{UI.RESET}\n")
+        except (IOError, ValueError, EOFError):
+            break
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -26,6 +41,8 @@ def init_terminal_colors():
 
 def check_for_updates():
     """Silently checks GitHub for a newer version and updates files automatically."""
+    global CURRENT_STATUS
+    CURRENT_STATUS = "Controleren op updates via GitHub..."
     current_dir = Path(__file__).resolve().parent
     version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/main/version.txt"
     
@@ -105,6 +122,7 @@ def handle_uninstall():
     print(f"{UI.GREEN}[OK] JustCompiler has been completely uninstalled. Please restart your terminal.{UI.RESET}")
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str):
+    global CURRENT_STATUS
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -141,6 +159,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
     image_tag = f"justcompiler-engine:{VERSION}"
 
     # --- AUTOMATISCH OPSCHONEN VAN OUDE VERSIES ---
+    CURRENT_STATUS = "Docker cache controleren en oude containers opruimen..."
     check_image = subprocess.run(docker_cmd + ["images", "-q", image_tag], capture_output=True, text=True)
     if not check_image.stdout.strip():
         with UI.spinner("Nieuwe scriptversie gedetecteerd! Oude Docker-omgevingen worden opgeruimd..."):
@@ -150,7 +169,8 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
                     subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # --- GEUPDATE UBUNTU 26.04 LTS ENGINE (Exacte xlib-pixbuf pakketnaam) ---
+    # --- GEUPDATE UBUNTU 26.04 LTS ENGINE ---
+    CURRENT_STATUS = "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen..."
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -213,12 +233,13 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
+    # LET OP: --rm is weggelaten zodat we na afloop de binaries eruit kunnen trekken!
+    # De broncode wordt als READ-ONLY (:ro) gekoppeld om vervuiling tegen te gaan.
     run_cmd = docker_cmd + [
-        "run", "--rm",
+        "run",
         "--name", "justcompiler_active_run",
         "-e", "PYTHONUNBUFFERED=1",
-        "-v", f"{target_path.resolve()}:/workspace/src:z",
-        "-v", f"{artifacts_path.resolve()}:/workspace/artifacts:z",
+        "-v", f"{target_path.resolve()}:/workspace/src:ro",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
         "-v", f"{cache_dirs['npm']}:/root/.npm:z",
@@ -236,10 +257,12 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         run_cmd.append("--test")
 
     try:
-        with UI.spinner("Project aan het compileren in de veilige sandbox..."):
-            result = subprocess.run(run_cmd, capture_output=True, text=True)
+        CURRENT_STATUS = "Project op de achtergrond aan het compileren binnen de sandbox..."
+        with UI.spinner("Project aan het compileren in de veilige sandbox... (Druk op 's' + Enter voor status)"):
+            result = subprocess.run(run_cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
             
         if result.returncode != 0:
+            CURRENT_STATUS = "Compilatie mislukt met foutmeldingen."
             UI.error("Compilatie mislukt! Dit is de foutmelding van de compiler:")
             if result.stderr:
                 print(f"{UI.RED}{result.stderr}{UI.RESET}")
@@ -247,18 +270,29 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
                 print(f"{UI.YELLOW}Gedetailleerd compiler-logboek:{UI.RESET}")
                 print(result.stdout)
         else:
+            CURRENT_STATUS = "Compilatie succesvol! Resultaten worden nu veiliggesteld..."
             UI.success("Compilatie succesvol afgerond!")
+            
+            # Kopieer ALLES (onbeperkte extensies) uit de container naar je lokale EXECUTABLE map
+            artifacts_path.mkdir(exist_ok=True)
+            subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
             if result.stdout:
                 print(f"{UI.CYAN}Resultaten / Output info:{UI.RESET}")
                 print('\n'.join(result.stdout.splitlines()[-8:]))
                 
     except KeyboardInterrupt:
+        CURRENT_STATUS = "Afgebroken door gebruiker. Sandbox wordt opgeschoond..."
         UI.warn("Build aborted by user. Cleaning up sandbox...")
-        subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     finally:
+        CURRENT_STATUS = "Tijdelijke containeromgevingen weghalen..."
+        subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        CURRENT_STATUS = "Systeem stand-by / Klaar."
 
 def handle_remote_git(url: str) -> Path:
+    global CURRENT_STATUS
+    CURRENT_STATUS = "Remote Git repository aan het binnenhalen..."
     UI.info(t('cloning'))
     branch = None
     if "#" in url: 
@@ -284,6 +318,9 @@ if __name__ == "__main__":
         handle_uninstall()
         sys.exit(0)
 
+    # Start de sneltoets-listener als een onafhankelijke achtergrond-daemon
+    threading.Thread(target=status_reporter_loop, daemon=True).start()
+
     check_for_updates()
 
     parser = argparse.ArgumentParser(description="JustCompiler CLI")
@@ -297,7 +334,8 @@ if __name__ == "__main__":
     selected_lang = "nl" if lang_choice == "2" else "en"
     core.set_lang(selected_lang)
 
-    artifacts_folder = Path("./BUILD_ARTIFACTS")
+    # Gewijzigd naar EXECUTABLE map om het overzichtelijk te houden
+    artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
     print(f"\n{UI.CYAN}{t('title')}{UI.RESET}")
@@ -330,6 +368,7 @@ if __name__ == "__main__":
     env_choice = input(f"{UI.YELLOW}{t('env_choice')}{UI.RESET}").strip()
 
     if env_choice == "2" or args.local_runtime:
+        CURRENT_STATUS = "Lokaal (bare-metal) aan het compileren..."
         baremetal.run_bare_metal(target, artifacts_folder, tests, selected_lang)
     else:
         bootstrap_sandbox(target, artifacts_folder, tests, selected_lang)
