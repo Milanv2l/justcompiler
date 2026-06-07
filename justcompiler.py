@@ -13,7 +13,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
@@ -35,7 +35,6 @@ def start_status_listener():
     t.start()
 
 def init_terminal_colors():
-    """Enables ANSI escape sequences for coloring in the Windows terminal."""
     if os.name == 'nt':
         try:
             import ctypes
@@ -45,7 +44,6 @@ def init_terminal_colors():
             pass
 
 def check_for_updates():
-    """Silently checks GitHub for a newer version and updates files automatically."""
     global CURRENT_STATUS
     CURRENT_STATUS = "Controleren op updates via GitHub..."
     current_dir = Path(__file__).resolve().parent
@@ -69,7 +67,6 @@ def check_for_updates():
         pass
 
 def handle_uninstall():
-    """Cleans up shell profiles, removes Docker images, and deletes the installation directory."""
     print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
     confirm = input("Are you sure you want to uninstall JustCompiler? (y/n): ").strip().lower()
     if confirm not in ['j', 'ja', 'y', 'yes']:
@@ -84,7 +81,6 @@ def handle_uninstall():
         docker_cmd = ["docker"]
         if not is_windows:
             if subprocess.run(["docker", "ps"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-                print("[INFO] Docker requires sudo privileges to remove the image.")
                 docker_cmd = ["sudo", "docker"]
         
         get_images = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "-q"], capture_output=True, text=True)
@@ -101,9 +97,8 @@ def handle_uninstall():
                 lines = p_path.read_text(encoding="utf-8").splitlines()
                 new_lines = [line for line in lines if "justcompiler" not in line.lower()]
                 p_path.write_text("\n".join(new_lines), encoding="utf-8")
-                print(f"{UI.GREEN}[OK] Removed alias from PowerShell profile.{UI.RESET}")
-        except Exception as e:
-            print(f"{UI.YELLOW}[WARN] Could not automatically clean PowerShell profile: {e}{UI.RESET}")
+        except Exception:
+            pass
     else:
         profiles = [Path.home() / ".zshrc", Path.home() / ".bashrc", Path.home() / ".profile"]
         for p_path in profiles:
@@ -112,11 +107,9 @@ def handle_uninstall():
                     lines = p_path.read_text(encoding="utf-8").splitlines()
                     new_lines = [line for line in lines if "justcompiler" not in line.lower()]
                     p_path.write_text("\n".join(new_lines), encoding="utf-8")
-                    print(f"{UI.GREEN}[OK] Removed alias from {p_path.name}.{UI.RESET}")
-                except Exception as e:
-                    print(f"{UI.YELLOW}[WARN] Could not clean {p_path.name}: {e}{UI.RESET}")
+                except Exception:
+                    pass
 
-    print("[INFO] Cleaning up installation files...")
     if is_windows:
         cmd = f"Start-Sleep -s 1; Remove-Item -Recurse -Force '{install_dir}'"
         subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd], creationflags=0x08000000)
@@ -163,7 +156,6 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 
     image_tag = f"justcompiler-engine:{VERSION}"
 
-    # --- AUTOMATISCH OPSCHONEN VAN OUDE VERSIES ---
     CURRENT_STATUS = "Docker cache controleren en oude containers opruimen..."
     check_image = subprocess.run(docker_cmd + ["images", "-q", image_tag], capture_output=True, text=True)
     if not check_image.stdout.strip():
@@ -174,7 +166,6 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
                     subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # --- GEUPDATE UBUNTU 26.04 LTS ENGINE ---
     CURRENT_STATUS = "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen..."
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -201,15 +192,12 @@ RUN pip install pyinstaller cx_Freeze
 
 WORKDIR /workspace
 
-# DE FIX: Maak de map definitief aan tijdens het bouwen van de image
-RUN mkdir -p /workspace/artifacts
-
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
 
-# Standaard en schone entrypoint zonder bash trucs
-ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
+# DE FIX: Maak een interne kopie (/workspace/build_src) zodat Gradle de bestanden onbeperkt kan aanpassen zonder de host (jouw pc) te vervuilen!
+ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -a /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \\"$@\\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     
@@ -244,6 +232,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
+    # Jouw code wordt 100% beveiligd via :ro (Read-Only) ingeladen.
     run_cmd = docker_cmd + [
         "run",
         "--name", "justcompiler_active_run",
