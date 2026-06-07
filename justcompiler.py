@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.0.8"
+VERSION = "1.0.7"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -136,10 +136,11 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
+    # --- NIEUW: apt-file is toegevoegd en apt-file update wordt uitgevoerd ---
     dockerfile_content = """FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && npm install -g pnpm yarn && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl git python3 python3-pip python3-venv build-essential g++ cmake qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo dotnet-sdk-8.0 php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file && rm -rf /var/lib/apt/lists/*
+RUN apt-file update
 
 # --- VEILIGE PYTHON VIRTUAL ENVIRONMENT ---
 ENV VIRTUAL_ENV=/opt/venv
@@ -158,17 +159,16 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
-        UI.info(t('sandbox_prep'))
-
-        build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)])
-        if build_result.returncode != 0:
-            UI.error("Docker build failed.")
-            return
+        with UI.spinner("Initializing Docker Sandbox Environment..."):
+            build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if build_result.returncode != 0:
+                UI.error("Docker build failed.")
+                return
     finally:
         if dockerfile_path.exists():
             dockerfile_path.unlink()
 
-    UI.success(t('sandbox_ready'))
+    UI.success(t('act_ready'))
 
     home = Path.home()
     cache_dirs = {
@@ -194,9 +194,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     if run_tests: 
         run_cmd.append("--test")
 
-    # --- HIER IS DE LELIJKE LOG AANGEPAST ---
-    UI.info(t('docker_start'))
-
     try:
         result = subprocess.run(run_cmd)
         if result.returncode != 0:
@@ -207,7 +204,7 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def handle_remote_git(url: str) -> Path:
-    UI.info(t('git_clone'))
+    UI.info(t('cloning'))
     branch = None
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
@@ -221,7 +218,7 @@ def handle_remote_git(url: str) -> Path:
 
     clone_cmd = f"git clone -b {branch} {url} {cache_dir}" if branch else f"git clone {url} {cache_dir}"
     if subprocess.run(clone_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-        UI.error(t('git_fail'))
+        UI.error(t('clone_fail'))
         sys.exit(1)
     return cache_dir
 
