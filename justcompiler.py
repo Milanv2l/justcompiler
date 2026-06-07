@@ -13,7 +13,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.6"
+VERSION = "1.1.7"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
@@ -203,7 +203,9 @@ WORKDIR /workspace
 COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
-ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out", "/workspace/artifacts"]
+
+# CRUCIALE FIX: Zorg dat /workspace/artifacts gegarandeerd bestaat vóór engine.py start!
+ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && python3 /workspace/engine.py --src /workspace/src --out /workspace/artifacts \\"$@\\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     
@@ -259,7 +261,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     if run_tests: 
         run_cmd.append("--test")
 
-    # Nu alle menu-inputs voorbij zijn, starten we hier pas de status achtergrond-listener op!
     start_status_listener()
 
     try:
@@ -329,7 +330,6 @@ if __name__ == "__main__":
     parser.add_argument("--local-runtime", action="store_true", help="Force local bare-metal execution")
     args = parser.parse_args()
 
-    # De hoofd-thread stelt nu als allereerste rustig de vragen zonder inmenging van de listener
     print("Select language / Kies taal:")
     print("  1. English (Default)")
     print("  2. Nederlands")
