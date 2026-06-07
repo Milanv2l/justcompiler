@@ -12,7 +12,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -65,7 +65,6 @@ def handle_uninstall():
                 print("[INFO] Docker requires sudo privileges to remove the image.")
                 docker_cmd = ["sudo", "docker"]
         
-        # Verwijder alle versies van de justcompiler engine
         get_images = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "-q"], capture_output=True, text=True)
         if get_images.stdout.strip():
             for img_id in get_images.stdout.splitlines():
@@ -139,7 +138,6 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         UI.error(t('err_files'))
         sys.exit(1)
 
-    # Definieer de image tag op basis van de huidige scriptversie
     image_tag = f"justcompiler-engine:{VERSION}"
 
     # --- AUTOMATISCH OPSCHONEN VAN OUDE VERSIES ---
@@ -152,7 +150,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
                     subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # --- BRAND NEW UBUNTU 26.04 LTS ENGINE (Tauri/GTK Compatible Edition) ---
+    # --- GEUPDATE UBUNTU 26.04 LTS ENGINE (Gecorrigeerde Pixbuf-naam) ---
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -161,7 +159,7 @@ RUN apt-get update && apt-get install -y \\
     qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
     php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
     libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
-    pkg-config libxdo-dev libgdk-pixbuf2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
+    pkg-config libxdo-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
@@ -237,7 +235,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     if run_tests: 
         run_cmd.append("--test")
 
-    # --- COMPILATIE MET MOOIE LAAD-SPINNER ---
     try:
         with UI.spinner("Project aan het compileren in de veilige sandbox..."):
             result = subprocess.run(run_cmd, capture_output=True, text=True)
@@ -253,7 +250,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
             UI.success("Compilatie succesvol afgerond!")
             if result.stdout:
                 print(f"{UI.CYAN}Resultaten / Output info:{UI.RESET}")
-                # Toon de laatste paar regels van het logboek (waar de bestanden staan opgeslagen)
                 print('\n'.join(result.stdout.splitlines()[-8:]))
                 
     except KeyboardInterrupt:
