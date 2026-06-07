@@ -6,6 +6,7 @@ import time
 import json
 import argparse
 import urllib.request
+import re
 from pathlib import Path
 import core
 from core import UI, t, DependencyManager
@@ -69,7 +70,7 @@ class Engine:
                     env["PATH"] = f"{path}/bin:{env.get('PATH', '')}"
                     break
 
-        errors, kw = [], ["error:", "failed", "exception", "not supported", "syntaxerror"]
+        errors, kw = [], ["error:", "failed", "exception", "not supported", "syntaxerror", "cannot find"]
         with open(self.log_file, "a", encoding="utf-8") as log:
             log.write(f"\n--- RUN: {cmd} ---\n")
             proc = subprocess.Popen(cmd, shell=True, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
@@ -97,7 +98,6 @@ class Engine:
         for out_dir in plugin["out_dirs"]:
             for base in [root] + list(root.parents)[:2]:
 
-                # VEILIGHEIDSCHECK: Voorkom dat hij uit de bronmap ontsnapt en de hele schijf (of /proc) gaat scannen!
                 if not str(base.resolve()).startswith(str(self.src_root)):
                     continue
 
@@ -117,7 +117,6 @@ class Engine:
                     try:
                         for f in target.rglob('*'):
                             try:
-                                # Negeer foute paden of mappen waar we geen rechten voor hebben
                                 if f.is_file() and (f.suffix in plugin["out_exts"] or (not f.suffix and os.access(f, os.X_OK))):
                                     if "node_modules" in f.parts: continue
                                     dest_f = self.out_root / f"{name}_{f.name}"
@@ -163,6 +162,59 @@ class Engine:
                 return "mkdir -p build && cd build && cmake .. && make -j$(nproc)"
         return cmd
 
+    def parse_and_rescue(self, errors) -> bool:
+        """De Magische Hybride Error Parser (Vangnet voor ontbrekende systeem libraries)"""
+        if not self.dep_mgr.in_docker:
+            return False # Pas deze magie alleen toe in de Docker Sandbox
+
+        # De Fast-Lane: Onze ingebouwde Top 10 beruchte C/C++ libraries
+        RESCUE_DICTIONARY = {
+            "openssl/ssl.h": "libssl-dev",
+            "curl/curl.h": "libcurl4-openssl-dev",
+            "sqlite3.h": "libsqlite3-dev",
+            "uuid/uuid.h": "uuid-dev",
+            "zlib.h": "zlib1g-dev",
+            "SDL.h": "libsdl2-dev",
+            "X11/Xlib.h": "libx11-dev",
+            "GL/glew.h": "libglew-dev",
+            "png.h": "libpng-dev",
+            "jpeglib.h": "libjpeg-dev"
+        }
+
+        for err in errors:
+            # Detecteer missende Header-bestanden (fatal error: lib.h: No such file)
+            match_header = re.search(r'(?:fatal )?error: ([a-zA-Z0-9_/\.\-]+): No such file', err)
+            # Detecteer missende dynamische bibliotheken via de linker (cannot find -lcurl)
+            match_lib = re.search(r'cannot find -l([a-zA-Z0-9_]+)', err)
+            
+            missing_item = None
+            if match_header: missing_item = match_header.group(1)
+            elif match_lib: missing_item = f"lib{match_lib.group(1)}.so"
+
+            if missing_item:
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing dependency detected: {missing_item}")
+                
+                # STAP 1: Gebruik de snelle dictionary
+                if missing_item in RESCUE_DICTIONARY:
+                    pkg = RESCUE_DICTIONARY[missing_item]
+                    UI.log(UI.CYAN, "AI-RESCUE   ", f"Installing known package: {pkg}")
+                    return self.dep_mgr.trigger_install(pkg)
+                
+                # STAP 2: De apt-file database fallback
+                UI.log(UI.CYAN, "AI-RESCUE   ", f"Searching Ubuntu database for {missing_item}...")
+                try:
+                    res = subprocess.run(["apt-file", "search", missing_item], capture_output=True, text=True, timeout=10)
+                    if res.returncode == 0 and res.stdout:
+                        # Haal alleen '-dev' pakketten op (want we zijn aan het compileren)
+                        lines = [line for line in res.stdout.split('\n') if line and '-dev' in line.split(':')[0]]
+                        if lines:
+                            pkg = lines[0].split(':')[0].strip()
+                            UI.log(UI.CYAN, "AI-RESCUE   ", f"Found matching package: {pkg}")
+                            return self.dep_mgr.trigger_install(pkg)
+                except Exception:
+                    pass
+        return False
+
     def process(self, root, files, plugin):
         name = root.name if root.name != "src" else "Root-Workspace"
         req = self.dep_mgr.inspect_version(root, plugin["tool"])
@@ -198,6 +250,11 @@ class Engine:
                     self.stats["success"] += 1
                     return
             else:
+                # --- DE AI-RESCUE HOOK ---
+                if self.parse_and_rescue(errs):
+                    UI.log(UI.GREEN, "AI-RESCUE   ", "Dependency installed successfully! Retrying build...")
+                    continue # Start dezelfde Strategy iteratie opnieuw!
+                
                 if errs:
                     print(f"   {UI.YELLOW}{t('err_output_title')}{UI.RESET}")
                     for e in errs: print(f"     {UI.RED}➔ {e}{UI.RESET}")
