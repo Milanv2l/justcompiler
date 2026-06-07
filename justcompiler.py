@@ -163,9 +163,13 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         with UI.spinner("Building Modern Ubuntu 26.04 LTS Sandbox Environment..."):
-            build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # --- DEZE REGEL IS AANGEPAST VOOR ZICHTBARE FOUTMELDINGEN ---
+            build_result = subprocess.run(docker_cmd + ["build", "-t", "justcompiler-engine", str(host_dir)], capture_output=True, text=True)
             if build_result.returncode != 0:
-                UI.error("Docker build failed.")
+                UI.error("Docker build failed! Dit is wat er misging:")
+                print(f"{UI.RED}{build_result.stderr}{UI.RESET}")
+                print(f"{UI.YELLOW}Standard Output (Last 10 lines):{UI.RESET}")
+                print('\n'.join(build_result.stdout.splitlines()[-10:]))
                 return
     finally:
         if dockerfile_path.exists():
