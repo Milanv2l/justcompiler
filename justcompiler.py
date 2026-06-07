@@ -13,7 +13,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
@@ -28,6 +28,11 @@ def status_reporter_loop():
                 print(f"\n{UI.CYAN}[JUSTCOMPILER STATUS]: {CURRENT_STATUS}{UI.RESET}\n")
         except (IOError, ValueError, EOFError):
             break
+
+def start_status_listener():
+    """Start de status-listener veilig als achtergrond-thread."""
+    t = threading.Thread(target=status_reporter_loop, daemon=True)
+    t.start()
 
 def init_terminal_colors():
     """Enables ANSI escape sequences for coloring in the Windows terminal."""
@@ -233,8 +238,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
-    # LET OP: --rm is weggelaten zodat we na afloop de binaries eruit kunnen trekken!
-    # De broncode wordt als READ-ONLY (:ro) gekoppeld om vervuiling tegen te gaan.
     run_cmd = docker_cmd + [
         "run",
         "--name", "justcompiler_active_run",
@@ -256,6 +259,9 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
     if run_tests: 
         run_cmd.append("--test")
 
+    # Nu alle menu-inputs voorbij zijn, starten we hier pas de status achtergrond-listener op!
+    start_status_listener()
+
     try:
         CURRENT_STATUS = "Project op de achtergrond aan het compileren binnen de sandbox..."
         with UI.spinner("Project aan het compileren in de veilige sandbox... (Druk op 's' + Enter voor status)"):
@@ -273,7 +279,6 @@ ENTRYPOINT ["python3", "/workspace/engine.py", "--src", "/workspace/src", "--out
             CURRENT_STATUS = "Compilatie succesvol! Resultaten worden nu veiliggesteld..."
             UI.success("Compilatie succesvol afgerond!")
             
-            # Kopieer ALLES (onbeperkte extensies) uit de container naar je lokale EXECUTABLE map
             artifacts_path.mkdir(exist_ok=True)
             subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
@@ -318,15 +323,13 @@ if __name__ == "__main__":
         handle_uninstall()
         sys.exit(0)
 
-    # Start de sneltoets-listener als een onafhankelijke achtergrond-daemon
-    threading.Thread(target=status_reporter_loop, daemon=True).start()
-
     check_for_updates()
 
     parser = argparse.ArgumentParser(description="JustCompiler CLI")
     parser.add_argument("--local-runtime", action="store_true", help="Force local bare-metal execution")
     args = parser.parse_args()
 
+    # De hoofd-thread stelt nu als allereerste rustig de vragen zonder inmenging van de listener
     print("Select language / Kies taal:")
     print("  1. English (Default)")
     print("  2. Nederlands")
@@ -334,7 +337,6 @@ if __name__ == "__main__":
     selected_lang = "nl" if lang_choice == "2" else "en"
     core.set_lang(selected_lang)
 
-    # Gewijzigd naar EXECUTABLE map om het overzichtelijk te houden
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
