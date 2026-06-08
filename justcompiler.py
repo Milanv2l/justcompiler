@@ -197,7 +197,7 @@ COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
 
 # DE FIX: Maak een interne kopie (/workspace/build_src) zodat Gradle de bestanden onbeperkt kan aanpassen zonder de host (jouw pc) te vervuilen!
-ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -r /workspace/src/. /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \\"$@\\"", "--"]
+ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \\"$@\\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     
@@ -237,7 +237,7 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -r /workspac
         "run",
         "--name", "justcompiler_active_run",
         "-e", "PYTHONUNBUFFERED=1",
-        "-v", f"{target_path.resolve()}:/workspace/src:ro",
+        "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
         "-v", f"{cache_dirs['npm']}:/root/.npm:z",
