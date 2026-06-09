@@ -13,13 +13,12 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
 
 # --- RUNTIME DICTIONARY INJECTION FOR TRANSLATIONS ---
-# We breiden core.py dynamisch uit zodat de vertalingen voor de nieuwe functies direct werken.
 core._TRANSLATIONS["en"].update({
     "git_fetching_branches": "Querying remote Git repository for available branches...",
     "branch_title": "Branch Selection",
@@ -193,6 +192,8 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
             subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     CURRENT_STATUS = "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen..."
+    
+    # OPLOSSING: libxxf86vm-dev, libgl1-mesa-dev en aanvullende X11 libs toegevoegd voor vlekkeloze CGO compilaties
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -202,6 +203,7 @@ RUN apt-get update && apt-get install -y \\
     php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
     libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
     pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
+    libxxf86vm-dev libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xorg-dev \\
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
@@ -314,16 +316,11 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
         CURRENT_STATUS = "Systeem stand-by / Klaar."
 
 def fetch_remote_git_info(url: str) -> tuple:
-    """
-    Vraagt de Git-server universeel (GitHub, GitLab, Codeberg, etc.) om metadata.
-    Returns: (exacte_default_branch, lijst_van_overige_branches)
-    """
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
-    default_branch = "main"  # Veilige fallback
+    default_branch = "main"
     all_branches = []
 
-    # 1. Zoek de echte default branch op via --symref bevraging van HEAD
     try:
         symref_res = subprocess.run(
             ["git", "ls-remote", "--symref", url, "HEAD"],
@@ -337,7 +334,6 @@ def fetch_remote_git_info(url: str) -> tuple:
     except Exception:
         pass
 
-    # 2. Haal alle branches op van de server
     try:
         heads_res = subprocess.run(
             ["git", "ls-remote", "--heads", url],
@@ -352,7 +348,6 @@ def fetch_remote_git_info(url: str) -> tuple:
     except Exception:
         pass
 
-    # Filter de default branch uit de lijst van overige branches om dubbelingen te voorkomen
     if default_branch in all_branches:
         all_branches.remove(default_branch)
 
@@ -366,12 +361,10 @@ def handle_remote_git(url: str) -> Path:
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
 
-    # Als er geen branch handmatig via '#' is meegegeven, starten we de UI Selector
     if not branch:
         with UI.spinner(t("git_fetching_branches")):
             default_branch, other_branches = fetch_remote_git_info(url)
             
-        # UI opbouw voor de branch-keuze
         UI.header(t("branch_title"))
         print(f"  [{UI.CYAN}1{UI.RESET}] 🌟 {t('default_branch_label')} ({default_branch})")
         
@@ -408,13 +401,11 @@ def handle_remote_git(url: str) -> Path:
         else:
             shutil.rmtree(cache_dir, ignore_errors=True)
 
-    # FEATURE: Shallow cloning (--depth 1) zorgt voor een razendsnelle download van grote projecten
     clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, url, str(cache_dir)]
     if subprocess.run(clone_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
         UI.error(t('clone_fail'))
         sys.exit(1)
         
-    # FEATURE: Lees commit metadata uit ter verificatie en logging
     try:
         commit_log = subprocess.run(
             ["git", "log", "-1", "--format=%h|%s", "HEAD"],
@@ -437,7 +428,6 @@ if __name__ == "__main__":
 
     check_for_updates()
 
-    # Nettere, gecentreerde taal-UI component
     print(f"\n{UI.BOLD}{UI.MAGENTA}── {t('lang_title')} ──{UI.RESET}")
     print(f"  [{UI.CYAN}1{UI.RESET}] English")
     print(f"  [{UI.CYAN}2{UI.RESET}] Nederlands")
@@ -453,7 +443,6 @@ if __name__ == "__main__":
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
-    # Hoofdmenu UI styling
     UI.header(t('title'))
     print(f"  [{UI.CYAN}1{UI.RESET}] {t('menu_1')[5:]}")
     print(f"  [{UI.CYAN}2{UI.RESET}] {t('menu_2')[5:]}")
@@ -478,7 +467,6 @@ if __name__ == "__main__":
 
     tests = input(f"\n{UI.YELLOW}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
-    # Omgevingsmenu UI styling
     UI.header(t('env_title'))
     print(f"  [{UI.CYAN}1{UI.RESET}] {t('env_1')[5:]}")
     print(f"  [{UI.CYAN}2{UI.RESET}] {t('env_2')[5:]}")
