@@ -13,10 +13,36 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
+
+# --- RUNTIME DICTIONARY INJECTION FOR TRANSLATIONS ---
+# We breiden core.py dynamisch uit zodat de vertalingen voor de nieuwe functies direct werken.
+core._TRANSLATIONS["en"].update({
+    "git_fetching_branches": "Querying remote Git repository for available branches...",
+    "branch_title": "Branch Selection",
+    "default_branch_label": "Default Branch",
+    "branch_choice_prompt": "Select a branch or option [1-{max_choice}]: ",
+    "selected_branch_info": "Target branch set to: {branch}",
+    "err_git_fetch": "Could not fetch branch list. Falling back to repository defaults.",
+    "commit_info": "Preparing to compile commit: {hash} ({msg})",
+    "lang_title": "Language / Taal",
+    "lang_choice": "Select language [1-2]: "
+})
+
+core._TRANSLATIONS["nl"].update({
+    "git_fetching_branches": "Remote Git repository bevragen voor beschikbare branches...",
+    "branch_title": "Branch Selectie",
+    "default_branch_label": "Standaard branch",
+    "branch_choice_prompt": "Kies een branch of optie [1-{max_choice}]: ",
+    "selected_branch_info": "Doelbranch ingesteld op: {branch}",
+    "err_git_fetch": "Kon branch-lijst niet ophalen. Er wordt teruggevallen op de repository standaard.",
+    "commit_info": "Voorbereiden om commit te compileren: {hash} ({msg})",
+    "lang_title": "Language / Taal",
+    "lang_choice": "Selecteer taal [1-2]: "
+})
 
 def status_reporter_loop():
     """Luistert op de achtergrond naar de 's' toets om de status te melden."""
@@ -287,59 +313,89 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         CURRENT_STATUS = "Systeem stand-by / Klaar."
 
-def get_remote_branches(url: str) -> list:
-    """Haalt universeel de beschikbare remote branches op via git ls-remote (GitHub, GitLab, Codeberg, etc.)"""
+def fetch_remote_git_info(url: str) -> tuple:
+    """
+    Vraagt de Git-server universeel (GitHub, GitLab, Codeberg, etc.) om metadata.
+    Returns: (exacte_default_branch, lijst_van_overige_branches)
+    """
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    default_branch = "main"  # Veilige fallback
+    all_branches = []
+
+    # 1. Zoek de echte default branch op via --symref bevraging van HEAD
     try:
-        env = os.environ.copy()
-        env["GIT_TERMINAL_PROMPT"] = "0"  # Voorkomt dat git om wachtwoorden blijft vragen bij ongeldige URL's
-        result = subprocess.run(
-            ["git", "ls-remote", "--heads", url],
-            capture_output=True, text=True, env=env, timeout=5
+        symref_res = subprocess.run(
+            ["git", "ls-remote", "--symref", url, "HEAD"],
+            capture_output=True, text=True, env=env, timeout=4
         )
-        if result.returncode != 0:
-            return []
-        
-        branches = []
-        for line in result.stdout.splitlines():
-            if "\trefs/heads/" in line:
-                # Extraheert de branch-naam uit de output regel
-                branches.append(line.split("\trefs/heads/")[-1].strip())
-        return branches
+        if symref_res.returncode == 0:
+            for line in symref_res.stdout.splitlines():
+                if line.startswith("ref: refs/heads/"):
+                    default_branch = line.split()[1].replace("refs/heads/", "").strip()
+                    break
     except Exception:
-        return []
+        pass
+
+    # 2. Haal alle branches op van de server
+    try:
+        heads_res = subprocess.run(
+            ["git", "ls-remote", "--heads", url],
+            capture_output=True, text=True, env=env, timeout=4
+        )
+        if heads_res.returncode == 0:
+            for line in heads_res.stdout.splitlines():
+                if "\trefs/heads/" in line:
+                    b_name = line.split("\trefs/heads/")[-1].strip()
+                    if b_name not in all_branches:
+                        all_branches.append(b_name)
+    except Exception:
+        pass
+
+    # Filter de default branch uit de lijst van overige branches om dubbelingen te voorkomen
+    if default_branch in all_branches:
+        all_branches.remove(default_branch)
+
+    return default_branch, all_branches
 
 def handle_remote_git(url: str) -> Path:
     global CURRENT_STATUS
-    CURRENT_STATUS = "Remote Git repository analyseren... / Analyzing remote Git repository..."
+    CURRENT_STATUS = t("git_fetching_branches")
     
     branch = None
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
 
-    # Als er geen branch handmatig is meegegeven achter een #, open dan de interactieve UI
+    # Als er geen branch handmatig via '#' is meegegeven, starten we de UI Selector
     if not branch:
-        print(f"\n{UI.CYAN}[INFO] Beschikbare branches ophalen van remote repository...{UI.RESET}")
-        branches = get_remote_branches(url)
-        
-        if branches:
-            print(f"\n{UI.CYAN}--- Beschikbare branches / Available branches ---{UI.RESET}")
-            for idx, br in enumerate(branches, 1):
-                print(f"  {idx}. {br}")
-            print(f"  {len(branches) + 1}. [Standaard branch gebruiken / Use default branch]")
+        with UI.spinner(t("git_fetching_branches")):
+            default_branch, other_branches = fetch_remote_git_info(url)
             
-            try:
-                choice = input(f"\n{UI.YELLOW}Kies een branch / Select a branch [1-{len(branches) + 1}]: {UI.RESET}").strip()
-                if choice.isdigit():
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(branches):
-                        branch = branches[idx]
-                        print(f"{UI.GREEN}[OK] Geselecteerde branch: {branch}{UI.RESET}\n")
-                    else:
-                        print(f"{UI.CYAN}[INFO] Standaard branch geselecteerd.{UI.RESET}\n")
-            except (KeyboardInterrupt, Exception):
-                pass
-        else:
-            print(f"{UI.YELLOW}[WARN] Kon geen branch-lijst ophalen. Standaard branch wordt gebruikt.{UI.RESET}\n")
+        # UI opbouw voor de branch-keuze
+        UI.header(t("branch_title"))
+        print(f"  [{UI.CYAN}1{UI.RESET}] 🌟 {t('default_branch_label')} ({default_branch})")
+        
+        for idx, br in enumerate(other_branches, 2):
+            print(f"  [{UI.CYAN}{idx}{UI.RESET}] 🌿 {br}")
+            
+        max_choice = len(other_branches) + 1
+        
+        try:
+            choice_input = input(f"\n{UI.YELLOW}{t('branch_choice_prompt', max_choice=max_choice)}{UI.RESET}").strip()
+            if choice_input.isdigit():
+                choice_idx = int(choice_input)
+                if choice_idx == 1:
+                    branch = default_branch
+                elif 2 <= choice_idx <= max_choice:
+                    branch = other_branches[choice_idx - 2]
+                else:
+                    branch = default_branch
+            else:
+                branch = default_branch
+        except (KeyboardInterrupt, Exception):
+            branch = default_branch
+
+        UI.success(t("selected_branch_info", branch=branch))
 
     CURRENT_STATUS = "Remote Git repository aan het binnenhalen..."
     UI.info(t('cloning'))
@@ -352,10 +408,24 @@ def handle_remote_git(url: str) -> Path:
         else:
             shutil.rmtree(cache_dir, ignore_errors=True)
 
-    clone_cmd = f"git clone -b {branch} {url} {cache_dir}" if branch else f"git clone {url} {cache_dir}"
-    if subprocess.run(clone_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+    # FEATURE: Shallow cloning (--depth 1) zorgt voor een razendsnelle download van grote projecten
+    clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, url, str(cache_dir)]
+    if subprocess.run(clone_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
         UI.error(t('clone_fail'))
         sys.exit(1)
+        
+    # FEATURE: Lees commit metadata uit ter verificatie en logging
+    try:
+        commit_log = subprocess.run(
+            ["git", "log", "-1", "--format=%h|%s", "HEAD"],
+            cwd=cache_dir, capture_output=True, text=True
+        )
+        if commit_log.returncode == 0:
+            c_hash, c_msg = commit_log.stdout.strip().split("|", 1)
+            UI.info(t("commit_info", hash=c_hash, msg=c_msg))
+    except Exception:
+        pass
+
     return cache_dir
 
 if __name__ == "__main__":
@@ -367,33 +437,36 @@ if __name__ == "__main__":
 
     check_for_updates()
 
+    # Nettere, gecentreerde taal-UI component
+    print(f"\n{UI.BOLD}{UI.MAGENTA}── {t('lang_title')} ──{UI.RESET}")
+    print(f"  [{UI.CYAN}1{UI.RESET}] English")
+    print(f"  [{UI.CYAN}2{UI.RESET}] Nederlands")
+    
+    lang_choice = input(f"\n{UI.YELLOW}Select language [1-2]: {UI.RESET}").strip()
+    selected_lang = "nl" if lang_choice == "2" else "en"
+    core.set_lang(selected_lang)
+
     parser = argparse.ArgumentParser(description="JustCompiler CLI")
     parser.add_argument("--local-runtime", action="store_true", help="Force local bare-metal execution")
     args = parser.parse_args()
 
-    print("Select language / Kies taal:")
-    print("  1. English (Default)")
-    print("  2. Nederlands")
-    lang_choice = input("Choice / Keuze [1-2]: ").strip()
-    selected_lang = "nl" if lang_choice == "2" else "en"
-    core.set_lang(selected_lang)
-
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
-    print(f"\n{UI.CYAN}{t('title')}{UI.RESET}")
-    print(t('menu_1'))
-    print(t('menu_2'))
-    print(t('menu_3'))
+    # Hoofdmenu UI styling
+    UI.header(t('title'))
+    print(f"  [{UI.CYAN}1{UI.RESET}] {t('menu_1')[5:]}")
+    print(f"  [{UI.CYAN}2{UI.RESET}] {t('menu_2')[5:]}")
+    print(f"  [{UI.CYAN}3{UI.RESET}] {t('menu_3')[5:]}")
 
     choice = input(f"\n{UI.YELLOW}{t('choice_prompt')}{UI.RESET}").strip()
     target = None
 
     if choice == "1":
-        path_input = input(f"{UI.YELLOW}{t('path_prompt')}{UI.RESET}").strip()
+        path_input = input(f"\n{UI.YELLOW}{t('path_prompt')}{UI.RESET}").strip()
         target = Path(path_input) if path_input else Path(".")
     elif choice == "2":
-        url = input(f"{UI.YELLOW}{t('git_prompt')}{UI.RESET}").strip()
+        url = input(f"\n{UI.YELLOW}{t('git_prompt')}{UI.RESET}").strip()
         if url: 
             target = handle_remote_git(url)
     else:
@@ -403,12 +476,13 @@ if __name__ == "__main__":
         UI.error(t('err_dir'))
         sys.exit(1)
 
-    tests = input(f"{UI.YELLOW}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
+    tests = input(f"\n{UI.YELLOW}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
-    print(f"\n{UI.CYAN}{t('env_title')}{UI.RESET}")
-    print(t('env_1'))
-    print(t('env_2'))
-    env_choice = input(f"{UI.YELLOW}{t('env_choice')}{UI.RESET}").strip()
+    # Omgevingsmenu UI styling
+    UI.header(t('env_title'))
+    print(f"  [{UI.CYAN}1{UI.RESET}] {t('env_1')[5:]}")
+    print(f"  [{UI.CYAN}2{UI.RESET}] {t('env_2')[5:]}")
+    env_choice = input(f"\n{UI.YELLOW}{t('env_choice')}{UI.RESET}").strip()
 
     if env_choice == "2" or args.local_runtime:
         CURRENT_STATUS = "Lokaal (bare-metal) aan het compileren..."
