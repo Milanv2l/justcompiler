@@ -13,7 +13,7 @@ from core import UI, t
 import baremetal
 
 # --- JUSTCOMPILER VERSION ---
-VERSION = "1.1.9"
+VERSION = "1.2.0"
 
 # Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
@@ -196,7 +196,6 @@ COPY core.py /workspace/core.py
 COPY engine.py /workspace/engine.py
 COPY plugins.json /workspace/plugins.json
 
-# DE FIX: Maak een interne kopie (/workspace/build_src) zodat Gradle de bestanden onbeperkt kan aanpassen zonder de host (jouw pc) te vervuilen!
 ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \\"$@\\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
@@ -232,7 +231,6 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
     for path in cache_dirs.values(): 
         path.mkdir(parents=True, exist_ok=True)
 
-    # Jouw code wordt 100% beveiligd via :ro (Read-Only) ingeladen.
     run_cmd = docker_cmd + [
         "run",
         "--name", "justcompiler_active_run",
@@ -289,15 +287,65 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         CURRENT_STATUS = "Systeem stand-by / Klaar."
 
+def get_remote_branches(url: str) -> list:
+    """Haalt universeel de beschikbare remote branches op via git ls-remote (GitHub, GitLab, Codeberg, etc.)"""
+    try:
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"  # Voorkomt dat git om wachtwoorden blijft vragen bij ongeldige URL's
+        result = subprocess.run(
+            ["git", "ls-remote", "--heads", url],
+            capture_output=True, text=True, env=env, timeout=5
+        )
+        if result.returncode != 0:
+            return []
+        
+        branches = []
+        for line in result.stdout.splitlines():
+            if "\trefs/heads/" in line:
+                # Extraheert de branch-naam uit de output regel
+                branches.append(line.split("\trefs/heads/")[-1].strip())
+        return branches
+    except Exception:
+        return []
+
 def handle_remote_git(url: str) -> Path:
     global CURRENT_STATUS
-    CURRENT_STATUS = "Remote Git repository aan het binnenhalen..."
-    UI.info(t('cloning'))
+    CURRENT_STATUS = "Remote Git repository analyseren... / Analyzing remote Git repository..."
+    
     branch = None
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
 
-    cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
+    # Als er geen branch handmatig is meegegeven achter een #, open dan de interactieve UI
+    if not branch:
+        print(f"\n{UI.CYAN}[INFO] Beschikbare branches ophalen van remote repository...{UI.RESET}")
+        branches = get_remote_branches(url)
+        
+        if branches:
+            print(f"\n{UI.CYAN}--- Beschikbare branches / Available branches ---{UI.RESET}")
+            for idx, br in enumerate(branches, 1):
+                print(f"  {idx}. {br}")
+            print(f"  {len(branches) + 1}. [Standaard branch gebruiken / Use default branch]")
+            
+            try:
+                choice = input(f"\n{UI.YELLOW}Kies een branch / Select a branch [1-{len(branches) + 1}]: {UI.RESET}").strip()
+                if choice.isdigit():
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(branches):
+                        branch = branches[idx]
+                        print(f"{UI.GREEN}[OK] Geselecteerde branch: {branch}{UI.RESET}\n")
+                    else:
+                        print(f"{UI.CYAN}[INFO] Standaard branch geselecteerd.{UI.RESET}\n")
+            except (KeyboardInterrupt, Exception):
+                pass
+        else:
+            print(f"{UI.YELLOW}[WARN] Kon geen branch-lijst ophalen. Standaard branch wordt gebruikt.{UI.RESET}\n")
+
+    CURRENT_STATUS = "Remote Git repository aan het binnenhalen..."
+    UI.info(t('cloning'))
+
+    repo_name = url.split("/")[-1].replace(".git", "")
+    cache_dir = Path("./_git_cache") / repo_name
     if cache_dir.exists():
         if platform.system() != "Windows":
             subprocess.run(f"sudo rm -rf {cache_dir}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
