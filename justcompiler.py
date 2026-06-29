@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import baremetal
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 CURRENT_STATUS = "Standby"
 
 def status_reporter_loop():
