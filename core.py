@@ -4,24 +4,22 @@ import subprocess
 import shutil
 import threading
 import time
+import re
 from pathlib import Path
 
 _CURRENT_LANG = "en"
 
 class _SpinnerContext:
-    """Asynchronous context manager for a smooth terminal loading spinner."""
     def __init__(self, text: str):
         self.text = text
         self.is_spinning = False
         self.thread = None
         self.success = True
-        # Moderne braille-spinner animatie
         self.spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
     def spin(self):
         i = 0
         while self.is_spinning:
-            # \033[K cleart de rest van de terminal-lijn voor een strakke look
             sys.stdout.write(f"\r\033[K{UI.CYAN}{self.spinner_chars[i]}{UI.RESET} {self.text}")
             sys.stdout.flush()
             i = (i + 1) % len(self.spinner_chars)
@@ -34,18 +32,14 @@ class _SpinnerContext:
         return self
 
     def fail(self):
-        """Mark the process as failed to change the exit icon."""
         self.success = False
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.is_spinning = False
         if self.thread:
             self.thread.join()
-        
-        sys.stdout.write('\r\033[K') # Wis de spinner lijn
+        sys.stdout.write('\r\033[K')
         sys.stdout.flush()
-        
-        # Laat een blijvend succes/faal bericht achter
         if exc_type is not None or not self.success:
             UI.error(self.text)
         else:
@@ -53,7 +47,6 @@ class _SpinnerContext:
 
 
 class UI:
-    """ANSI color escape sequences and modernized logging methods for the CLI."""
     CYAN = "\033[36m"
     YELLOW = "\033[33m"
     GREEN = "\033[32m"
@@ -65,23 +58,21 @@ class UI:
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
-    # --- OUDE LOG METHODE (nodig voor engine.py backwards compatibility) ---
     @classmethod
     def log(cls, color, prefix, msg):
         print(f"{color}{prefix}{cls.RESET} {msg}")
 
-    # --- MODERNE LOG METHODES ---
     @staticmethod
     def info(msg: str):
-        print(f"{UI.CYAN}ℹ{UI.RESET} {msg}")
+        print(f"{UI.CYAN}❯{UI.RESET} {msg}")
 
     @staticmethod
     def success(msg: str):
-        print(f"{UI.GREEN}✓{UI.RESET} {msg}")
+        print(f"{UI.GREEN}✔{UI.RESET} {msg}")
 
     @staticmethod
     def warn(msg: str):
-        print(f"{UI.YELLOW}⚠{UI.RESET} {msg}")
+        print(f"{UI.YELLOW}⚡{UI.RESET} {msg}")
 
     @staticmethod
     def error(msg: str):
@@ -93,32 +84,56 @@ class UI:
 
     @staticmethod
     def spinner(msg: str) -> _SpinnerContext:
-        """Starts a non-blocking UI spinner. Use as a 'with' context manager."""
         return _SpinnerContext(msg)
 
-# Professional, clean CLI terminology
+    @staticmethod
+    def clear():
+        """Clears the terminal screen smoothly."""
+        sys.stdout.write("\033[H\033[2J")
+        sys.stdout.flush()
+
+    @staticmethod
+    def draw_panel(title: str, lines: list, width: int = 75, color: str = CYAN):
+        """Draws a modern, polished TUI dashboard panel with clean Unicode borders."""
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\\[0-?]*[ -/]*[@-~])')
+        
+        # Header line
+        title_text = f" {UI.BOLD}{title}{UI.RESET}{color} "
+        plain_title = ansi_escape.sub('', title_text)
+        top_line = f"{color}┌─{title_text}" + "─" * (width - len(plain_title) - 4) + f"┐{UI.RESET}"
+        print(top_line)
+        
+        # Content lines
+        for line in lines:
+            plain_line = ansi_escape.sub('', line)
+            padding = width - len(plain_line) - 4
+            if padding < 0: padding = 0
+            print(f"{color}│{UI.RESET}  {line}" + " " * padding + f" {color}│{UI.RESET}")
+            
+        # Footer line
+        print(f"{color}└" + "─" * (width - 2) + f"┘{UI.RESET}")
+
 _TRANSLATIONS = {
     "en": {
-        "title": "JustCompiler",
-        "menu_1": "  1. Compile local workspace",
-        "menu_2": "  2. Compile remote Git repository",
-        "menu_3": "  3. Exit Application",
-        "choice_prompt": "Enter choice [1-3]: ",
-        "path_prompt": "Local workspace path (Leave empty for current dir): ",
-        "git_prompt": "Remote Git URL (HTTPS): ",
-        "test_prompt": "Run tests automatically during build? (y/n): ",
-        "runtime_prompt": "Execute in Docker Sandbox? (Otherwise Bare-Metal) (y/n): ",
+        "title": "JustCompiler Engine Dashboard",
+        "menu_1": "1. Compile local workspace",
+        "menu_2": "2. Compile remote Git repository",
+        "menu_3": "3. Exit Application",
+        "choice_prompt": "Select an option [1-3]: ",
+        "path_prompt": "Workspace path (Leave empty for current dir): ",
+        "git_prompt": "Remote Git URL (HTTPS) [use url#branch]: ",
+        "test_prompt": "Run automated test suites? (y/n): ",
+        "runtime_prompt": "Select execution sandbox: ",
         
-        "env_title": "Select Execution Environment:",
-        "env_1": "  1. Docker Sandbox (Isolated & Safe)",
-        "env_2": "  2. Bare-Metal (Host System)",
-        "env_choice": "Environment choice [1-2]: ",
+        "env_title": "Execution Environments",
+        "env_1": "1. Docker Sandbox (Isolated & Safe)",
+        "env_2": "2. Bare-Metal (Host Native System)",
+        "env_choice": "Select environment [1-2]: ",
 
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
         "clone_fail": "Failed to clone remote repository.",
         
-        # Spinner Messages
         "deps_py": "Resolving Python dependencies",
         "deps_node": "Resolving Node.js packages",
         "deps_go": "Fetching Go modules",
@@ -142,26 +157,25 @@ _TRANSLATIONS = {
         "report_status": "{green}✓ Succeeded: {success}{reset} | {red}✖ Failed: {failed}{reset} | {yellow}⚠ Skipped: {skipped}{reset} | {time}s",
     },
     "nl": {
-        "title": "JustCompiler",
-        "menu_1": "  1. Lokale workspace compileren",
-        "menu_2": "  2. Externe Git repository compileren",
-        "menu_3": "  3. Applicatie Afsluiten",
-        "choice_prompt": "Voer keuze in [1-3]: ",
-        "path_prompt": "Lokaal workspace pad (Leeg laten voor huidige map): ",
-        "git_prompt": "Externe Git URL (HTTPS): ",
-        "test_prompt": "Tests automatisch uitvoeren tijdens build? (j/n): ",
-        "runtime_prompt": "Uitvoeren in Docker Sandbox? (Anders Bare-Metal) (j/n): ",
+        "title": "JustCompiler Engine Dashboard",
+        "menu_1": "1. Lokale workspace compileren",
+        "menu_2": "2. Externe Git repository compileren",
+        "menu_3": "3. Applicatie Afsluiten",
+        "choice_prompt": "Selecteer een optie [1-3]: ",
+        "path_prompt": "Workspace pad (Leeg laten voor huidige map): ",
+        "git_prompt": "Externe Git URL (HTTPS) [gebruik url#branch]: ",
+        "test_prompt": "Automatische testsuites uitvoeren? (j/n): ",
+        "runtime_prompt": "Selecteer sandbox-omgeving: ",
         
-        "env_title": "Selecteer Uitvoeringsomgeving:",
-        "env_1": "  1. Docker Sandbox (Geïsoleerd & Veilig)",
-        "env_2": "  2. Bare-Metal (Host Systeem)",
-        "env_choice": "Omgevingskeuze [1-2]: ",
+        "env_title": "Uitvoeringsomgevingen",
+        "env_1": "1. Docker Sandbox (Geïsoleerd & Veilig)",
+        "env_2": "2. Bare-Metal (Host Systeem)",
+        "env_choice": "Selecteer omgeving [1-2]: ",
 
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
         "cloning": "Repository klonen naar tijdelijke workspace...",
         "clone_fail": "Kan de externe repository niet klonen.",
         
-        # Spinner Messages
         "deps_py": "Python afhankelijkheden ophalen",
         "deps_node": "Node.js pakketten installeren",
         "deps_go": "Go modules ophalen",
@@ -194,16 +208,11 @@ def set_lang(lang: str):
 def t(key: str, **kwargs) -> str:
     text = _TRANSLATIONS[_CURRENT_LANG].get(key, key)
     if kwargs:
-        try:
-            return text.format(**kwargs)
-        except KeyError:
-            return text
+        try: return text.format(**kwargs)
+        except KeyError: return text
     return text
 
-
 class DependencyManager:
-    """Handles automatic dependency resolution natively with clean UI spinners."""
-    
     def __init__(self, auto_install: bool = True):
         self.auto_install = auto_install
         self.in_docker = Path('/.dockerenv').exists()
@@ -214,9 +223,9 @@ class DependencyManager:
         try:
             res = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=3)
             if res.returncode == 0 and res.stdout:
-                return res.stdout.split('\n')[0][:35].strip()
-        except Exception:
-            pass
+                return res.stdout.split('
+')[0][:35].strip()
+        except Exception: pass
         return "Versie onbekend" if _CURRENT_LANG == "nl" else "Unknown Version"
 
     def get_pkg_manager(self) -> str:
@@ -226,9 +235,7 @@ class DependencyManager:
         return "unknown"
 
     def trigger_install(self, tool: str) -> bool:
-        if not self.auto_install:
-            return False
-            
+        if not self.auto_install: return False
         pkg_mgr = self.get_pkg_manager()
         pkg = tool
         if tool == "mvn": pkg = "maven"
@@ -239,53 +246,40 @@ class DependencyManager:
             with UI.spinner(t("installing", tool=pkg)) as spinner:
                 subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if res.returncode != 0:
-                    spinner.fail()
+                if res.returncode != 0: spinner.fail()
                 return res.returncode == 0
-            
         return False
 
-    def cleanup(self):
-        pass
+    def cleanup(self): pass
 
     def resolve_dependencies(self, target_dir: Path):
-        """Silently resolves dependencies using the animated UI spinner."""
-        if not self.auto_install:
-            return
-
+        if not self.auto_install: return
         target_dir = Path(target_dir)
 
         if (target_dir / "requirements.txt").exists():
             with UI.spinner(t("deps_py")) as sp:
                 res = subprocess.run(["pip3", "install", "-r", "requirements.txt"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-        
         if (target_dir / "package.json").exists():
             with UI.spinner(t("deps_node")) as sp:
                 res = subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "go.mod").exists():
             with UI.spinner(t("deps_go")) as sp:
                 subprocess.run(["go", "mod", "tidy"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["go", "mod", "download"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "Cargo.toml").exists():
             with UI.spinner(t("deps_rust")) as sp:
                 res = subprocess.run(["cargo", "fetch"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "pom.xml").exists():
             with UI.spinner(t("deps_java")) as sp:
-                wrapper = "mvnw" if os.name == "nt" else "./mvnw"
-                cmd = wrapper if (target_dir / "mvnw").exists() else "mvn"
+                cmd = "./mvnw" if (target_dir / "mvnw").exists() else "mvn"
                 res = subprocess.run([cmd, "dependency:resolve"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-            
         if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists():
             with UI.spinner(t("deps_java")) as sp:
-                wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
-                cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
+                cmd = "./gradlew" if (target_dir / "gradlew").exists() else "gradle"
                 res = subprocess.run([cmd, "build", "-x", "test"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
