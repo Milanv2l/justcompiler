@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import baremetal
 
-VERSION = "1.2.1"
+VERSION = "1.2.0"
 CURRENT_STATUS = "Standby"
 
 def status_reporter_loop():
@@ -92,13 +92,13 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
     CURRENT_STATUS = "Building sandbox..."
     dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \\
-    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
-    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
-    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
-    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
-    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
-    dotnet-sdk-10.0 \\
+RUN apt-get update && apt-get install -y \
+    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \
+    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \
+    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \
+    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \
+    dotnet-sdk-10.0 \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
 RUN npm install -g pnpm yarn
@@ -108,7 +108,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
 WORKDIR /workspace
 COPY core.py engine.py plugins.json /workspace/
-ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \\"$@\\"", "--"]
+ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \"$@\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
     try:
@@ -158,20 +158,98 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
     finally:
         subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
+def fetch_remote_git_info(url: str) -> tuple:
+    """Haalt branches dynamisch op van GitHub, GitLab of Codeberg."""
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    default_branch = "main"
+    all_branches = []
+    
+    try:
+        symref_res = subprocess.run(["git", "ls-remote", "--symref", url, "HEAD"], capture_output=True, text=True, env=env, timeout=4)
+        if symref_res.returncode == 0:
+            for line in symref_res.stdout.splitlines():
+                if line.startswith("ref: refs/heads/"):
+                    default_branch = line.split()[1].replace("refs/heads/", "").strip()
+                    break
+    except Exception: pass
+
+    try:
+        heads_res = subprocess.run(["git", "ls-remote", "--heads", url], capture_output=True, text=True, env=env, timeout=4)
+        if heads_res.returncode == 0:
+            for line in heads_res.stdout.splitlines():
+                if "\trefs/heads/" in line:
+                    b_name = line.split("\trefs/heads/")[-1].strip()
+                    if b_name not in all_branches:
+                        all_branches.append(b_name)
+    except Exception: pass
+
+    if default_branch in all_branches:
+        all_branches.remove(default_branch)
+    return default_branch, all_branches
+
+
 def handle_remote_git(url: str) -> Path:
     global CURRENT_STATUS
-    CURRENT_STATUS = "Fetching git repository"
+    CURRENT_STATUS = "Fetching git metadata..."
+    show_tui_header()
+    
+    branch = None
+    if "#" in url: 
+        url, branch = [p.strip() for p in url.split("#", 1)]
+
+    # Interactieve TUI Branch Selector
+    if not branch:
+        with UI.spinner("Querying remote Git repository for available branches..."):
+            default_branch, other_branches = fetch_remote_git_info(url)
+        
+        show_tui_header()
+        branch_lines = [f" [1] 🌟 Default / Standaard ({default_branch})"]
+        for idx, br in enumerate(other_branches, 2):
+            branch_lines.append(f" [{idx}] 🌿 {br}")
+        
+        UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
+        max_choice = len(other_branches) + 1
+        
+        try:
+            choice_input = input(f"\n{UI.BOLD}➔ Select branch [1-{max_choice}]: {UI.RESET}").strip()
+            if choice_input.isdigit():
+                choice_idx = int(choice_input)
+                if choice_idx == 1:
+                    branch = default_branch
+                elif 2 <= choice_idx <= max_choice:
+                    branch = other_branches[choice_idx - 2]
+                else:
+                    branch = default_branch
+            else:
+                branch = default_branch
+        except Exception:
+            branch = default_branch
+
+    CURRENT_STATUS = f"Cloning branch: {branch}"
     show_tui_header()
     UI.info(t('cloning'))
-    branch = url.split("#")[1] if "#" in url else None
-    url = url.split("#")[0]
+
     cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
-    if cache_dir.exists(): 
-        shutil.rmtree(cache_dir, ignore_errors=True)
-    cmd = f"git clone -b {branch} {url} {cache_dir}" if branch else f"git clone {url} {cache_dir}"
-    if subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+    
+    # Rechten bug-fix: Forceer het opschonen van de cache map via sudo als Docker deze heeft geblokkeerd.
+    if cache_dir.exists():
+        if platform.system() != "Windows":
+            subprocess.run(f"sudo rm -rf {cache_dir}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+    # Shallow clone (--depth 1) hersteld voor maximale snelheid
+    clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, url, str(cache_dir)]
+    result = subprocess.run(clone_cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
         UI.error(t('clone_fail'))
+        # Foutmelding debug-output hersteld!
+        print(f"\n{UI.RED}Git Error Details:{UI.RESET}\n{result.stderr.strip()}")
         sys.exit(1)
+        
     return cache_dir
 
 if __name__ == "__main__":
