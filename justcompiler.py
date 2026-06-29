@@ -6,6 +6,7 @@ import argparse
 import platform
 import json
 import threading
+import time
 from pathlib import Path
 import urllib.request
 import core
@@ -22,7 +23,8 @@ def status_reporter_loop():
             user_input = input().strip().lower()
             if user_input == 's':
                 print(f"\n{UI.CYAN}[JUSTCOMPILER STATUS]: {CURRENT_STATUS}{UI.RESET}\n")
-        except (IOError, ValueError, EOFError): break
+        except (IOError, ValueError, EOFError): 
+            break
 
 def start_status_listener():
     threading.Thread(target=status_reporter_loop, daemon=True).start()
@@ -33,7 +35,8 @@ def init_terminal_colors():
             import ctypes
             kernel32 = ctypes.windll.kernel32
             kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-        except Exception: pass
+        except Exception: 
+            pass
 
 def check_for_updates():
     global CURRENT_STATUS
@@ -51,7 +54,8 @@ def check_for_updates():
                     (current_dir / file_name).write_bytes(file_response.read())
             print(f"{UI.GREEN}[OK] JustCompiler updated to {remote_version}!{UI.RESET}")
             sys.exit(0)
-    except Exception: pass
+    except Exception: 
+        pass
 
 def show_tui_header():
     UI.clear()
@@ -112,13 +116,15 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
         with UI.spinner("Syncing Docker sandbox image cache..."):
             subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     finally:
-        if dockerfile_path.exists(): dockerfile_path.unlink()
+        if dockerfile_path.exists(): 
+            dockerfile_path.unlink()
 
     home = Path.home()
     cache_dirs = {k: home / v for k, v in {
         "gradle": ".gradle", "maven": ".m2", "npm": ".npm", "pip": ".cache/pip", "cargo": ".cargo/registry"
     }.items()}
-    for p in cache_dirs.values(): p.mkdir(parents=True, exist_ok=True)
+    for p in cache_dirs.values(): 
+        p.mkdir(parents=True, exist_ok=True)
 
     run_cmd = docker_cmd + [
         "run", "--name", "justcompiler_active_run", "-e", "PYTHONUNBUFFERED=1",
@@ -127,7 +133,8 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
         image_tag, "--lang", lang
     ]
-    if run_tests: run_cmd.append("--test")
+    if run_tests: 
+        run_cmd.append("--test")
 
     start_status_listener()
     try:
@@ -159,7 +166,8 @@ def handle_remote_git(url: str) -> Path:
     branch = url.split("#")[1] if "#" in url else None
     url = url.split("#")[0]
     cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
-    if cache_dir.exists(): shutil.rmtree(cache_dir, ignore_errors=True)
+    if cache_dir.exists(): 
+        shutil.rmtree(cache_dir, ignore_errors=True)
     cmd = f"git clone -b {branch} {url} {cache_dir}" if branch else f"git clone {url} {cache_dir}"
     if subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
         UI.error(t('clone_fail'))
@@ -201,7 +209,8 @@ if __name__ == "__main__":
         elif choice == "2":
             show_tui_header()
             url = input(f"{UI.BOLD}➔ {t('git_prompt')}{UI.RESET}").strip()
-            if url: target = handle_remote_git(url)
+            if url: 
+                target = handle_remote_git(url)
         else:
             UI.clear()
             sys.exit(0)
