@@ -10,6 +10,7 @@ from pathlib import Path
 _CURRENT_LANG = "en"
 
 class _SpinnerContext:
+    """Asynchronous context manager for a smooth terminal loading spinner."""
     def __init__(self, text: str):
         self.text = text
         self.is_spinning = False
@@ -38,8 +39,10 @@ class _SpinnerContext:
         self.is_spinning = False
         if self.thread:
             self.thread.join()
+        
         sys.stdout.write('\r\033[K')
         sys.stdout.flush()
+        
         if exc_type is not None or not self.success:
             UI.error(self.text)
         else:
@@ -47,6 +50,7 @@ class _SpinnerContext:
 
 
 class UI:
+    """ANSI color escape sequences and modernized box-drawing layout methods for the TUI."""
     CYAN = "\033[36m"
     YELLOW = "\033[33m"
     GREEN = "\033[32m"
@@ -88,30 +92,29 @@ class UI:
 
     @staticmethod
     def clear():
-        """Clears the terminal screen smoothly."""
+        """Smoothly clears the terminal screen."""
         sys.stdout.write("\033[H\033[2J")
         sys.stdout.flush()
 
     @staticmethod
     def draw_panel(title: str, lines: list, width: int = 75, color: str = CYAN):
-        """Draws a modern, polished TUI dashboard panel with clean Unicode borders."""
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\\[0-?]*[ -/]*[@-~])')
+        """Draws a clean, modern TUI panel with Unicode borders and padding."""
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
-        # Header line
         title_text = f" {UI.BOLD}{title}{UI.RESET}{color} "
         plain_title = ansi_escape.sub('', title_text)
         top_line = f"{color}┌─{title_text}" + "─" * (width - len(plain_title) - 4) + f"┐{UI.RESET}"
         print(top_line)
         
-        # Content lines
         for line in lines:
             plain_line = ansi_escape.sub('', line)
             padding = width - len(plain_line) - 4
-            if padding < 0: padding = 0
+            if padding < 0: 
+                padding = 0
             print(f"{color}│{UI.RESET}  {line}" + " " * padding + f" {color}│{UI.RESET}")
             
-        # Footer line
         print(f"{color}└" + "─" * (width - 2) + f"┘{UI.RESET}")
+
 
 _TRANSLATIONS = {
     "en": {
@@ -133,6 +136,12 @@ _TRANSLATIONS = {
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
         "clone_fail": "Failed to clone remote repository.",
+        "err_docker": "Docker is not installed or running. Sandbox unavailable.",
+        "err_files": "Required engine files are missing.",
+        "err_auth": "Authentication failed or permissions denied.",
+        "err_sudo": "Docker requires elevated root privileges.",
+        "sudo_prompt": "Please verify sudo privileges... ",
+        "act_ready": "Sandbox environment is verified and ready.",
         
         "deps_py": "Resolving Python dependencies",
         "deps_node": "Resolving Node.js packages",
@@ -146,7 +155,7 @@ _TRANSLATIONS = {
         "act_detected": "Detected    ",
         "act_test": "Testing     ",
         "act_verify": "Verified    ",
-        "act_ready": "Ready       ",
+        "act_ready_lbl": "Ready       ",
         "act_saved": "Saved       ",
         "test_fail_abort": "Tests failed. Aborting build for {name}.",
         "test_success": "Tests passed successfully.",
@@ -175,6 +184,12 @@ _TRANSLATIONS = {
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
         "cloning": "Repository klonen naar tijdelijke workspace...",
         "clone_fail": "Kan de externe repository niet klonen.",
+        "err_docker": "Docker is niet geïnstalleerd of actief. Sandbox onbeschikbaar.",
+        "err_files": "Vereiste enginebestanden ontbreken.",
+        "err_auth": "Authenticatie mislukt of rechten geweigerd.",
+        "err_sudo": "Docker vereist verhoogde administratorrechten (sudo).",
+        "sudo_prompt": "Verifieer a.u.b. sudo-toegang... ",
+        "act_ready": "Sandbox-omgeving is geverifieerd en klaar.",
         
         "deps_py": "Python afhankelijkheden ophalen",
         "deps_node": "Node.js pakketten installeren",
@@ -188,7 +203,7 @@ _TRANSLATIONS = {
         "act_detected": "Gevonden    ",
         "act_test": "Testen      ",
         "act_verify": "Geverifieerd",
-        "act_ready": "Klaar       ",
+        "act_ready_lbl": "Klaar       ",
         "act_saved": "Opgeslagen  ",
         "test_fail_abort": "Tests mislukt. Build afgebroken voor {name}.",
         "test_success": "Alle tests succesvol doorstaan.",
@@ -208,9 +223,12 @@ def set_lang(lang: str):
 def t(key: str, **kwargs) -> str:
     text = _TRANSLATIONS[_CURRENT_LANG].get(key, key)
     if kwargs:
-        try: return text.format(**kwargs)
-        except KeyError: return text
+        try: 
+            return text.format(**kwargs)
+        except KeyError: 
+            return text
     return text
+
 
 class DependencyManager:
     def __init__(self, auto_install: bool = True):
@@ -223,9 +241,9 @@ class DependencyManager:
         try:
             res = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=3)
             if res.returncode == 0 and res.stdout:
-                return res.stdout.split('
-')[0][:35].strip()
-        except Exception: pass
+                return res.stdout.splitlines()[0][:35].strip()
+        except Exception: 
+            pass
         return "Versie onbekend" if _CURRENT_LANG == "nl" else "Unknown Version"
 
     def get_pkg_manager(self) -> str:
@@ -235,7 +253,8 @@ class DependencyManager:
         return "unknown"
 
     def trigger_install(self, tool: str) -> bool:
-        if not self.auto_install: return False
+        if not self.auto_install: 
+            return False
         pkg_mgr = self.get_pkg_manager()
         pkg = tool
         if tool == "mvn": pkg = "maven"
@@ -246,14 +265,17 @@ class DependencyManager:
             with UI.spinner(t("installing", tool=pkg)) as spinner:
                 subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if res.returncode != 0: spinner.fail()
+                if res.returncode != 0: 
+                    spinner.fail()
                 return res.returncode == 0
         return False
 
-    def cleanup(self): pass
+    def cleanup(self): 
+        pass
 
     def resolve_dependencies(self, target_dir: Path):
-        if not self.auto_install: return
+        if not self.auto_install: 
+            return
         target_dir = Path(target_dir)
 
         if (target_dir / "requirements.txt").exists():
@@ -275,11 +297,13 @@ class DependencyManager:
                 if res.returncode != 0: sp.fail()
         if (target_dir / "pom.xml").exists():
             with UI.spinner(t("deps_java")) as sp:
-                cmd = "./mvnw" if (target_dir / "mvnw").exists() else "mvn"
+                wrapper = "mvnw" if os.name == "nt" else "./mvnw"
+                cmd = wrapper if (target_dir / "mvnw").exists() else "mvn"
                 res = subprocess.run([cmd, "dependency:resolve"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
         if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists():
             with UI.spinner(t("deps_java")) as sp:
-                cmd = "./gradlew" if (target_dir / "gradlew").exists() else "gradle"
+                wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
+                cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
                 res = subprocess.run([cmd, "build", "-x", "test"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
