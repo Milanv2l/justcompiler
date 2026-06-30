@@ -1,4 +1,3 @@
-cat << 'EOF' > /home/milanv_/.justcompiler/docker_manager.py
 import os
 import sys
 import subprocess
@@ -151,4 +150,3 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
         set_status_fn(t('docker_cleanup_status'))
         subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-EOF
