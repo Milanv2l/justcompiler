@@ -1,9 +1,11 @@
+cat << 'EOF' > /home/milanv_/.justcompiler/core.py
 import os
 import sys
 import subprocess
 import shutil
 import threading
 import time
+import re
 from pathlib import Path
 
 _CURRENT_LANG = "en"
@@ -64,16 +66,40 @@ class UI:
         print(f"{color}{prefix}{cls.RESET} {msg}")
 
     @staticmethod
+    def clear():
+        """Smoothly clears the terminal screen."""
+        sys.stdout.write("\033[H\033[2J")
+        sys.stdout.flush()
+
+    @staticmethod
+    def draw_panel(title: str, lines: list, width: int = 75, color: str = CYAN):
+        """Draws a clean, modern TUI panel with Unicode borders and padding."""
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])')
+        
+        title_text = f" {UI.BOLD}{title}{UI.RESET}{color} "
+        plain_title = ansi_escape.sub('', title_text)
+        top_line = f"{color}┌─{title_text}" + "─" * (width - len(plain_title) - 4) + f"┐{UI.RESET}"
+        print(top_line)
+        
+        for line in lines:
+            plain_line = ansi_escape.sub('', line)
+            padding = width - len(plain_line) - 4
+            if padding < 0: padding = 0
+            print(f"{color}│{UI.RESET}  {line}" + " " * padding + f" {color}│{UI.RESET}")
+            
+        print(f"{color}└" + "─" * (width - 2) + f"┘{UI.RESET}")
+
+    @staticmethod
     def info(msg: str):
-        print(f"{UI.CYAN}ℹ{UI.RESET} {msg}")
+        print(f"{UI.CYAN}❯{UI.RESET} {msg}")
 
     @staticmethod
     def success(msg: str):
-        print(f"{UI.GREEN}✓{UI.RESET} {msg}")
+        print(f"{UI.GREEN}✔{UI.RESET} {msg}")
 
     @staticmethod
     def warn(msg: str):
-        print(f"{UI.YELLOW}⚠{UI.RESET} {msg}")
+        print(f"{UI.YELLOW}⚡{UI.RESET} {msg}")
 
     @staticmethod
     def error(msg: str):
@@ -89,16 +115,15 @@ class UI:
 
 _TRANSLATIONS = {
     "en": {
-        "title": "JustCompiler",
-        "menu_1": "  1. Compile local workspace",
-        "menu_2": "  2. Compile remote Git repository",
-        "menu_3": "  3. Exit Application",
-        "choice_prompt": "Enter choice [1-3]: ",
-        "path_prompt": "Local workspace path (Leave empty for current dir): ",
-        "git_prompt": "Remote Git URL (HTTPS): ",
-        "test_prompt": "Run tests automatically during build? (y/n): ",
-        
-        "docker_version_detected_title": "Detected Local Sandbox Container Environments:",
+        "title": "JustCompiler Engine Dashboard",
+        "menu_1": "1. Compile local workspace",
+        "menu_2": "2. Compile remote Git repository",
+        "menu_3": "3. Exit Application",
+        "choice_prompt": "Select an option [1-3]: ",
+        "path_prompt": "Workspace path (Leave empty for current dir): ",
+        "git_prompt": "Remote Git URL (HTTPS) [use url#branch]: ",
+        "test_prompt": "Run automated test suites? (y/n): ",
+        "docker_version_detected_title": "Detected Local Sandbox Container Environments",
         "docker_version_detected_prompt": "Select which sandbox version to deploy [1-X, Default=1]: ",
         
         "err_dir": "Invalid target path or directory does not exist.",
@@ -111,7 +136,6 @@ _TRANSLATIONS = {
         "err_files": "Critical framework components (engine.py/core.py) are missing.",
         "err_custom_version_missing": "Specified old Docker image tag 'justcompiler-engine:{version}' was not found locally!",
 
-        # Docker Status Messages
         "docker_cache_check": "Checking Docker cache and existing environments...",
         "docker_clean_old": "New script version detected! Cleaning up old Docker sandboxes...",
         "docker_building_base": "Building Modern Ubuntu 26.04 LTS Sandbox base image...",
@@ -143,16 +167,15 @@ _TRANSLATIONS = {
         "compile_fail": "Compilation failed completely.",
     },
     "nl": {
-        "title": "JustCompiler",
-        "menu_1": "  1. Lokale workspace compileren",
-        "menu_2": "  2. Externe Git repository compileren",
-        "menu_3": "  3. Applicatie Afsluiten",
-        "choice_prompt": "Voer keuze in [1-3]: ",
-        "path_prompt": "Lokaal workspace pad (Leeg laten voor huidige map): ",
-        "git_prompt": "Externe Git URL (HTTPS): ",
-        "test_prompt": "Tests automatisch uitvoeren tijdens build? (j/n): ",
-        
-        "docker_version_detected_title": "Gedetecteerde Lokale Sandbox Containeromgevingen:",
+        "title": "JustCompiler Engine Dashboard",
+        "menu_1": "1. Lokale workspace compileren",
+        "menu_2": "2. Externe Git repository compileren",
+        "menu_3": "3. Applicatie Afsluiten",
+        "choice_prompt": "Selecteer een optie [1-3]: ",
+        "path_prompt": "Workspace pad (Leeg laten voor huidige map): ",
+        "git_prompt": "Externe Git URL (HTTPS) [gebruik url#branch]: ",
+        "test_prompt": "Automatische testsuites uitvoeren? (j/n): ",
+        "docker_version_detected_title": "Gedetecteerde Lokale Sandbox Containeromgevingen",
         "docker_version_detected_prompt": "Selecteer welke sandbox-versie je wilt gebruiken [1-X, Standaard=1]: ",
         
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
@@ -165,7 +188,6 @@ _TRANSLATIONS = {
         "err_files": "Kritieke framework-onderdelen (engine.py/core.py) ontbreken.",
         "err_custom_version_missing": "Gespecificeerde oude Docker-image 'justcompiler-engine:{version}' is lokaal niet gevonden!",
 
-        # Docker Status Berichten
         "docker_cache_check": "Docker cache controleren en actieve omgevingen inspecteren...",
         "docker_clean_old": "Nieuwe scriptversie gedetecteerd! Oude Docker-omgevingen worden opgeruimd...",
         "docker_building_base": "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen...",
@@ -223,7 +245,7 @@ class DependencyManager:
         try:
             res = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=3)
             if res.returncode == 0 and res.stdout:
-                return res.stdout.split('\n')[0][:35].strip()
+                return res.stdout.splitlines()[0][:35].strip()
         except Exception:
             pass
         return "Versie onbekend" if _CURRENT_LANG == "nl" else "Unknown Version"
@@ -235,9 +257,7 @@ class DependencyManager:
         return "unknown"
 
     def trigger_install(self, tool: str) -> bool:
-        if not self.auto_install:
-            return False
-            
+        if not self.auto_install: return False
         pkg_mgr = self.get_pkg_manager()
         pkg = tool
         if tool == "mvn": pkg = "maven"
@@ -248,52 +268,43 @@ class DependencyManager:
             with UI.spinner(t("installing", tool=pkg)) as spinner:
                 subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if res.returncode != 0:
-                    spinner.fail()
+                if res.returncode != 0: spinner.fail()
                 return res.returncode == 0
-            
         return False
 
-    def cleanup(self):
-        pass
+    def cleanup(self): pass
 
     def resolve_dependencies(self, target_dir: Path):
-        if not self.auto_install:
-            return
-
+        if not self.auto_install: return
         target_dir = Path(target_dir)
 
         if (target_dir / "requirements.txt").exists():
             with UI.spinner(t("deps_py")) as sp:
                 res = subprocess.run(["pip3", "install", "-r", "requirements.txt"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-        
         if (target_dir / "package.json").exists():
             with UI.spinner(t("deps_node")) as sp:
                 res = subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "go.mod").exists():
             with UI.spinner(t("deps_go")) as sp:
                 subprocess.run(["go", "mod", "tidy"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["go", "mod", "download"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "Cargo.toml").exists():
             with UI.spinner(t("deps_rust")) as sp:
                 res = subprocess.run(["cargo", "fetch"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-
         if (target_dir / "pom.xml").exists():
             with UI.spinner(t("deps_java")) as sp:
                 wrapper = "mvnw" if os.name == "nt" else "./mvnw"
                 cmd = wrapper if (target_dir / "mvnw").exists() else "mvn"
                 res = subprocess.run([cmd, "dependency:resolve"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-            
         if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists():
             with UI.spinner(t("deps_java")) as sp:
                 wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
                 cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
                 res = subprocess.run([cmd, "build", "-x", "test"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+EOF
