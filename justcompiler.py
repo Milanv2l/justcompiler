@@ -14,7 +14,6 @@ import docker_manager
 # --- JUSTCOMPILER VERSION ---
 VERSION = "1.1.9"
 
-# Globale statusvariabele voor de sneltoets-announcer
 CURRENT_STATUS = "Opstarten... / Starting up..."
 
 def set_current_status(msg: str):
@@ -22,7 +21,6 @@ def set_current_status(msg: str):
     CURRENT_STATUS = msg
 
 def status_reporter_loop():
-    """Luistert op de achtergrond naar de 's' toets om de status te melden."""
     while True:
         try:
             user_input = input().strip().lower()
@@ -32,7 +30,6 @@ def status_reporter_loop():
             break
 
 def start_status_listener():
-    """Start de status-listener veilig als achtergrond-thread."""
     t_thread = threading.Thread(target=status_reporter_loop, daemon=True)
     t_thread.start()
 
@@ -145,7 +142,7 @@ def handle_remote_git(url: str) -> Path:
 if __name__ == "__main__":
     init_terminal_colors()
 
-    # TAALSELECTIE DIRECT ALS EERSTE UITVOEREN
+    # TAALSELECTIE DIRECT ALS EERSTE
     print("Select language / Kies taal:")
     print("  1. English (Default)")
     print("  2. Nederlands")
@@ -186,20 +183,37 @@ if __name__ == "__main__":
 
     tests = input(f"{UI.YELLOW}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
-    # OPTIE VOOR OUDE DOCKER-VERSION OPVRAGEN
-    custom_docker_ver = input(f"{UI.YELLOW}{t('docker_version_prompt', version=VERSION)}{UI.RESET}").strip()
-    if not custom_docker_ver:
-        custom_docker_ver = None
+    # AUTOMATISCHE DETECTIE VAN LOKALE DOCKER IMAGES
+    version_to_use = VERSION
+    local_tags = docker_manager.detect_local_versions()
+
+    # Toon het menu alleen als er daadwerkelijk andere versies zijn gevonden
+    if local_tags:
+        print(f"\n{UI.CYAN}{t('docker_version_detected_title')}{UI.RESET}")
+        print(f"  1. Default Version ({VERSION}) [Aanbevolen]")
+        
+        # Geef alle lokaal gevonden versies weer
+        for idx, tag in enumerate(local_tags, start=2):
+            print(f"  {idx}. Oude containerversie hergebruiken: {tag}")
+            
+        v_choice = input(f"{UI.YELLOW}{t('docker_version_detected_prompt')}{UI.RESET}").strip()
+        
+        if v_choice.isdigit():
+            v_idx = int(v_choice)
+            if v_idx == 1:
+                version_to_use = VERSION
+            elif 2 <= v_idx <= len(local_tags) + 1:
+                version_to_use = local_tags[v_idx - 2]
 
     start_status_listener()
 
-    # Altijd via Docker Sandbox starten
+    # Start sandbox met de gekozen (of automatisch gedetecteerde) container-tag
     docker_manager.bootstrap_sandbox(
         target_path=target, 
         artifacts_path=artifacts_folder, 
         run_tests=tests, 
         lang=selected_lang,
         set_status_fn=set_current_status,
-        custom_version=custom_docker_ver,
+        version_to_use=version_to_use,
         current_version=VERSION
     )
