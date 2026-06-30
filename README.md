@@ -11,7 +11,7 @@ Als je op een Windows computer werkt, gebruik je de PowerShell-methode:
     Kopieer en plak de volgende regel in het blauwe PowerShell venster en druk op Enter:
     PowerShell
 
-    irm https://raw.githubusercontent.com/Milanv2l/Autobuilder/main/Windows/setup.ps1 | iex
+    irm https://raw.githubusercontent.com/Milanv2l/justcompiler/main/Windows/setup.ps1 | iex
 
     Het script gaat nu lopen. Je ziet de installatie-stappen en hij controleert of je Docker hebt.
 
@@ -26,7 +26,7 @@ Als je op Linux werkt, gebruik je de Bash-methode:
     Kopieer en plak de volgende regel in je terminal en druk op Enter:
     Bash
 
-    curl -fsSL https://raw.githubusercontent.com/Milanv2l/Autobuilder/main/Linux/setup.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/Milanv2l/Justcompiler/main/Linux/setup.sh | bash
 
     Het script zal je waarschijnlijk één keer om je wachtwoord (sudo) vragen om eventueel Docker te installeren of de Docker-service in te schakelen.
 
