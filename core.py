@@ -9,7 +9,6 @@ from pathlib import Path
 _CURRENT_LANG = "en"
 
 class _SpinnerContext:
-    """Asynchronous context manager for a smooth terminal loading spinner."""
     def __init__(self, text: str):
         self.text = text
         self.is_spinning = False
@@ -98,7 +97,9 @@ _TRANSLATIONS = {
         "path_prompt": "Local workspace path (Leave empty for current dir): ",
         "git_prompt": "Remote Git URL (HTTPS): ",
         "test_prompt": "Run tests automatically during build? (y/n): ",
-        "docker_version_prompt": "Enter custom Docker image tag to reuse (Leave empty for current version {version}): ",
+        
+        "docker_version_detected_title": "Detected Local Sandbox Container Environments:",
+        "docker_version_detected_prompt": "Select which sandbox version to deploy [1-X, Default=1]: ",
         
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
@@ -150,7 +151,9 @@ _TRANSLATIONS = {
         "path_prompt": "Lokaal workspace pad (Leeg laten voor huidige map): ",
         "git_prompt": "Externe Git URL (HTTPS): ",
         "test_prompt": "Tests automatisch uitvoeren tijdens build? (j/n): ",
-        "docker_version_prompt": "Voer een specifieke oude Docker-tag in om te hergebruiken (Leeg voor huidige versie {version}): ",
+        
+        "docker_version_detected_title": "Gedetecteerde Lokale Sandbox Containeromgevingen:",
+        "docker_version_detected_prompt": "Selecteer welke sandbox-versie je wilt gebruiken [1-X, Standaard=1]: ",
         
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
         "cloning": "Repository klonen naar tijdelijke workspace...",
