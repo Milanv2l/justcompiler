@@ -1,4 +1,3 @@
-cat << 'EOF' > /home/milanv_/.justcompiler/core.py
 import os
 import sys
 import subprocess
@@ -307,4 +306,3 @@ class DependencyManager:
                 cmd = wrapper if (target_dir / "gradlew").exists() else "gradle"
                 res = subprocess.run([cmd, "build", "-x", "test"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
-EOF
