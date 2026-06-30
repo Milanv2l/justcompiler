@@ -4,7 +4,6 @@ import subprocess
 import shutil
 import threading
 import time
-import re
 from pathlib import Path
 
 _CURRENT_LANG = "en"
@@ -50,7 +49,6 @@ class _SpinnerContext:
 
 
 class UI:
-    """ANSI color escape sequences and modernized box-drawing layout methods for the TUI."""
     CYAN = "\033[36m"
     YELLOW = "\033[33m"
     GREEN = "\033[32m"
@@ -68,15 +66,15 @@ class UI:
 
     @staticmethod
     def info(msg: str):
-        print(f"{UI.CYAN}❯{UI.RESET} {msg}")
+        print(f"{UI.CYAN}ℹ{UI.RESET} {msg}")
 
     @staticmethod
     def success(msg: str):
-        print(f"{UI.GREEN}✔{UI.RESET} {msg}")
+        print(f"{UI.GREEN}✓{UI.RESET} {msg}")
 
     @staticmethod
     def warn(msg: str):
-        print(f"{UI.YELLOW}⚡{UI.RESET} {msg}")
+        print(f"{UI.YELLOW}⚠{UI.RESET} {msg}")
 
     @staticmethod
     def error(msg: str):
@@ -90,59 +88,41 @@ class UI:
     def spinner(msg: str) -> _SpinnerContext:
         return _SpinnerContext(msg)
 
-    @staticmethod
-    def clear():
-        """Smoothly clears the terminal screen."""
-        sys.stdout.write("\033[H\033[2J")
-        sys.stdout.flush()
-
-    @staticmethod
-    def draw_panel(title: str, lines: list, width: int = 75, color: str = CYAN):
-        """Draws a clean, modern TUI panel with Unicode borders and padding."""
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])')
-        
-        title_text = f" {UI.BOLD}{title}{UI.RESET}{color} "
-        plain_title = ansi_escape.sub('', title_text)
-        top_line = f"{color}┌─{title_text}" + "─" * (width - len(plain_title) - 4) + f"┐{UI.RESET}"
-        print(top_line)
-        
-        for line in lines:
-            plain_line = ansi_escape.sub('', line)
-            padding = width - len(plain_line) - 4
-            if padding < 0: 
-                padding = 0
-            print(f"{color}│{UI.RESET}  {line}" + " " * padding + f" {color}│{UI.RESET}")
-            
-        print(f"{color}└" + "─" * (width - 2) + f"┘{UI.RESET}")
-
-
 _TRANSLATIONS = {
     "en": {
-        "title": "JustCompiler Engine Dashboard",
-        "menu_1": "1. Compile local workspace",
-        "menu_2": "2. Compile remote Git repository",
-        "menu_3": "3. Exit Application",
-        "choice_prompt": "Select an option [1-3]: ",
-        "path_prompt": "Workspace path (Leave empty for current dir): ",
-        "git_prompt": "Remote Git URL (HTTPS) [use url#branch]: ",
-        "test_prompt": "Run automated test suites? (y/n): ",
-        "runtime_prompt": "Select execution sandbox: ",
+        "title": "JustCompiler",
+        "menu_1": "  1. Compile local workspace",
+        "menu_2": "  2. Compile remote Git repository",
+        "menu_3": "  3. Exit Application",
+        "choice_prompt": "Enter choice [1-3]: ",
+        "path_prompt": "Local workspace path (Leave empty for current dir): ",
+        "git_prompt": "Remote Git URL (HTTPS): ",
+        "test_prompt": "Run tests automatically during build? (y/n): ",
+        "docker_version_prompt": "Enter custom Docker image tag to reuse (Leave empty for current version {version}): ",
         
-        "env_title": "Execution Environments",
-        "env_1": "1. Docker Sandbox (Isolated & Safe)",
-        "env_2": "2. Bare-Metal (Host Native System)",
-        "env_choice": "Select environment [1-2]: ",
-
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
         "clone_fail": "Failed to clone remote repository.",
-        "err_docker": "Docker is not installed or running. Sandbox unavailable.",
-        "err_files": "Required engine files are missing.",
-        "err_auth": "Authentication failed or permissions denied.",
-        "err_sudo": "Docker requires elevated root privileges.",
-        "sudo_prompt": "Please verify sudo privileges... ",
-        "act_ready": "Sandbox environment is verified and ready.",
-        
+        "err_docker": "Docker is not installed or not running on this system.",
+        "err_sudo": "Docker requires root privileges.",
+        "sudo_prompt": "Please enter sudo password if prompted: ",
+        "err_auth": "Authentication failed. Cannot run Docker sandbox.",
+        "err_files": "Critical framework components (engine.py/core.py) are missing.",
+        "err_custom_version_missing": "Specified old Docker image tag 'justcompiler-engine:{version}' was not found locally!",
+
+        # Docker Status Messages
+        "docker_cache_check": "Checking Docker cache and existing environments...",
+        "docker_clean_old": "New script version detected! Cleaning up old Docker sandboxes...",
+        "docker_building_base": "Building Modern Ubuntu 26.04 LTS Sandbox base image...",
+        "docker_building_spinner": "Building Modern Ubuntu 26.04 LTS Sandbox Environment...",
+        "docker_reusing_old": "Successfully mapped and reusing old Docker container version: {version}",
+        "docker_compiling_status": "Compiling project on the background inside the secure sandbox...",
+        "docker_compiling_spinner": "Compiling project inside the safe sandbox... (Press 's' + Enter for status)",
+        "docker_failed_status": "Compilation failed with compiler errors.",
+        "docker_success_status": "Compilation successful! Safeguarding build artifacts...",
+        "docker_abort_status": "Aborted by user. Clearing sandbox environments...",
+        "docker_cleanup_status": "Removing temporary container environments...",
+
         "deps_py": "Resolving Python dependencies",
         "deps_node": "Resolving Node.js packages",
         "deps_go": "Fetching Go modules",
@@ -155,42 +135,46 @@ _TRANSLATIONS = {
         "act_detected": "Detected    ",
         "act_test": "Testing     ",
         "act_verify": "Verified    ",
-        "act_ready_lbl": "Ready       ",
+        "act_ready": "Ready       ",
         "act_saved": "Saved       ",
         "test_fail_abort": "Tests failed. Aborting build for {name}.",
-        "test_success": "Tests passed successfully.",
+        "test_success": "All tests passed successfully.",
         "compile_fail": "Compilation failed completely.",
-        "fallback_msg": "Attempting fallback strategy...",
-        "err_output_title": "Error Output:",
-        "report_header": "=== BUILD REPORT ===",
-        "report_status": "{green}✓ Succeeded: {success}{reset} | {red}✖ Failed: {failed}{reset} | {yellow}⚠ Skipped: {skipped}{reset} | {time}s",
     },
     "nl": {
-        "title": "JustCompiler Engine Dashboard",
-        "menu_1": "1. Lokale workspace compileren",
-        "menu_2": "2. Externe Git repository compileren",
-        "menu_3": "3. Applicatie Afsluiten",
-        "choice_prompt": "Selecteer een optie [1-3]: ",
-        "path_prompt": "Workspace pad (Leeg laten voor huidige map): ",
-        "git_prompt": "Externe Git URL (HTTPS) [gebruik url#branch]: ",
-        "test_prompt": "Automatische testsuites uitvoeren? (j/n): ",
-        "runtime_prompt": "Selecteer sandbox-omgeving: ",
+        "title": "JustCompiler",
+        "menu_1": "  1. Lokale workspace compileren",
+        "menu_2": "  2. Externe Git repository compileren",
+        "menu_3": "  3. Applicatie Afsluiten",
+        "choice_prompt": "Voer keuze in [1-3]: ",
+        "path_prompt": "Lokaal workspace pad (Leeg laten voor huidige map): ",
+        "git_prompt": "Externe Git URL (HTTPS): ",
+        "test_prompt": "Tests automatisch uitvoeren tijdens build? (j/n): ",
+        "docker_version_prompt": "Voer een specifieke oude Docker-tag in om te hergebruiken (Leeg voor huidige versie {version}): ",
         
-        "env_title": "Uitvoeringsomgevingen",
-        "env_1": "1. Docker Sandbox (Geïsoleerd & Veilig)",
-        "env_2": "2. Bare-Metal (Host Systeem)",
-        "env_choice": "Selecteer omgeving [1-2]: ",
-
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
         "cloning": "Repository klonen naar tijdelijke workspace...",
         "clone_fail": "Kan de externe repository niet klonen.",
-        "err_docker": "Docker is niet geïnstalleerd of actief. Sandbox onbeschikbaar.",
-        "err_files": "Vereiste enginebestanden ontbreken.",
-        "err_auth": "Authenticatie mislukt of rechten geweigerd.",
-        "err_sudo": "Docker vereist verhoogde administratorrechten (sudo).",
-        "sudo_prompt": "Verifieer a.u.b. sudo-toegang... ",
-        "act_ready": "Sandbox-omgeving is geverifieerd en klaar.",
-        
+        "err_docker": "Docker is niet geïnstalleerd of staat niet aan op dit systeem.",
+        "err_sudo": "Docker vereist root-privileges op dit systeem.",
+        "sudo_prompt": "Voer uw sudo-wachtwoord in indien gevraagd: ",
+        "err_auth": "Authenticatie mislukt. Kan Docker sandbox niet starten.",
+        "err_files": "Kritieke framework-onderdelen (engine.py/core.py) ontbreken.",
+        "err_custom_version_missing": "Gespecificeerde oude Docker-image 'justcompiler-engine:{version}' is lokaal niet gevonden!",
+
+        # Docker Status Berichten
+        "docker_cache_check": "Docker cache controleren en actieve omgevingen inspecteren...",
+        "docker_clean_old": "Nieuwe scriptversie gedetecteerd! Oude Docker-omgevingen worden opgeruimd...",
+        "docker_building_base": "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen...",
+        "docker_building_spinner": "Modern Ubuntu 26.04 LTS Sandbox-omgeving bouwen...",
+        "docker_reusing_old": "Succesvol gekoppeld met oude Docker containerversie: {version}",
+        "docker_compiling_status": "Project op de achtergrond aan het compileren binnen de sandbox...",
+        "docker_compiling_spinner": "Project aan het compileren in de veilige sandbox... (Druk op 's' + Enter voor status)",
+        "docker_failed_status": "Compilatie mislukt met foutmeldingen.",
+        "docker_success_status": "Compilatie succesvol! Resultaten worden nu veiliggesteld...",
+        "docker_abort_status": "Afgebroken door gebruiker. Sandbox wordt opgeschoond...",
+        "docker_cleanup_status": "Tijdelijke containeromgevingen weghalen...",
+
         "deps_py": "Python afhankelijkheden ophalen",
         "deps_node": "Node.js pakketten installeren",
         "deps_go": "Go modules ophalen",
@@ -203,15 +187,11 @@ _TRANSLATIONS = {
         "act_detected": "Gevonden    ",
         "act_test": "Testen      ",
         "act_verify": "Geverifieerd",
-        "act_ready_lbl": "Klaar       ",
+        "act_ready": "Klaar       ",
         "act_saved": "Opgeslagen  ",
         "test_fail_abort": "Tests mislukt. Build afgebroken voor {name}.",
         "test_success": "Alle tests succesvol doorstaan.",
         "compile_fail": "Compilatie volledig mislukt.",
-        "fallback_msg": "Terugvallen op alternatieve strategie...",
-        "err_output_title": "Foutmelding(en):",
-        "report_header": "=== BUILD RAPPORT ===",
-        "report_status": "{green}✓ Voltooid: {success}{reset} | {red}✖ Mislukt: {failed}{reset} | {yellow}⚠ Overgeslagen: {skipped}{reset} | {time}s",
     }
 }
 
@@ -223,12 +203,11 @@ def set_lang(lang: str):
 def t(key: str, **kwargs) -> str:
     text = _TRANSLATIONS[_CURRENT_LANG].get(key, key)
     if kwargs:
-        try: 
+        try:
             return text.format(**kwargs)
-        except KeyError: 
+        except KeyError:
             return text
     return text
-
 
 class DependencyManager:
     def __init__(self, auto_install: bool = True):
@@ -241,9 +220,8 @@ class DependencyManager:
         try:
             res = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=3)
             if res.returncode == 0 and res.stdout:
-                # Hier zit de veilige splitlines() implementatie!
-                return res.stdout.splitlines()[0][:35].strip()
-        except Exception: 
+                return res.stdout.split('\n')[0][:35].strip()
+        except Exception:
             pass
         return "Versie onbekend" if _CURRENT_LANG == "nl" else "Unknown Version"
 
@@ -254,8 +232,9 @@ class DependencyManager:
         return "unknown"
 
     def trigger_install(self, tool: str) -> bool:
-        if not self.auto_install: 
+        if not self.auto_install:
             return False
+            
         pkg_mgr = self.get_pkg_manager()
         pkg = tool
         if tool == "mvn": pkg = "maven"
@@ -266,42 +245,49 @@ class DependencyManager:
             with UI.spinner(t("installing", tool=pkg)) as spinner:
                 subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if res.returncode != 0: 
+                if res.returncode != 0:
                     spinner.fail()
                 return res.returncode == 0
+            
         return False
 
-    def cleanup(self): 
+    def cleanup(self):
         pass
 
     def resolve_dependencies(self, target_dir: Path):
-        if not self.auto_install: 
+        if not self.auto_install:
             return
+
         target_dir = Path(target_dir)
 
         if (target_dir / "requirements.txt").exists():
             with UI.spinner(t("deps_py")) as sp:
                 res = subprocess.run(["pip3", "install", "-r", "requirements.txt"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+        
         if (target_dir / "package.json").exists():
             with UI.spinner(t("deps_node")) as sp:
                 res = subprocess.run(["npm", "install"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+
         if (target_dir / "go.mod").exists():
             with UI.spinner(t("deps_go")) as sp:
                 subprocess.run(["go", "mod", "tidy"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 res = subprocess.run(["go", "mod", "download"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+
         if (target_dir / "Cargo.toml").exists():
             with UI.spinner(t("deps_rust")) as sp:
                 res = subprocess.run(["cargo", "fetch"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+
         if (target_dir / "pom.xml").exists():
             with UI.spinner(t("deps_java")) as sp:
                 wrapper = "mvnw" if os.name == "nt" else "./mvnw"
                 cmd = wrapper if (target_dir / "mvnw").exists() else "mvn"
                 res = subprocess.run([cmd, "dependency:resolve"], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: sp.fail()
+            
         if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists():
             with UI.spinner(t("deps_java")) as sp:
                 wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
