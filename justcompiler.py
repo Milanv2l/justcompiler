@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import baremetal
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 CURRENT_STATUS = "Standby"
 
 def status_reporter_loop():
@@ -111,13 +111,25 @@ COPY core.py engine.py plugins.json /workspace/
 ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \"$@\"", "--"]
 """
     dockerfile_path = host_dir / "Dockerfile"
+    dockerignore_path = host_dir / ".dockerignore"
+    
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
-        with UI.spinner("Syncing Docker sandbox image cache..."):
-            subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # VOORKOM BUILD CONTEXT VERVUILING: Sluit zware cache-mappen uit
+        dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
+        
+        show_tui_header()
+        print(f"{UI.CYAN}➔ Bouwen van de Docker Sandbox Image...{UI.RESET}")
+        print(f"{UI.DIM}Dit gebeurt alleen de allereerste keer en kan 5-10 minuten duren vanwege alle compilers.{UI.RESET}")
+        print(f"{UI.DIM}De download-voortgang wordt hieronder live weergegeven:{UI.RESET}\n")
+        print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}")
+        
+        # LIVE OUTPUT INSTELLING: stdout=DEVNULL wegehaald zodat je kunt zien wat er gebeurt!
+        subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)])
+        print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}\n")
     finally:
-        if dockerfile_path.exists(): 
-            dockerfile_path.unlink()
+        if dockerfile_path.exists(): dockerfile_path.unlink()
+        if dockerignore_path.exists(): dockerignore_path.unlink()
 
     home = Path.home()
     cache_dirs = {k: home / v for k, v in {
@@ -160,7 +172,6 @@ ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspac
 
 
 def fetch_remote_git_info(url: str) -> tuple:
-    """Haalt branches dynamisch op van GitHub, GitLab of Codeberg."""
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
     default_branch = "main"
@@ -199,7 +210,6 @@ def handle_remote_git(url: str) -> Path:
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
 
-    # Interactieve TUI Branch Selector
     if not branch:
         with UI.spinner("Querying remote Git repository for available branches..."):
             default_branch, other_branches = fetch_remote_git_info(url)
@@ -233,20 +243,17 @@ def handle_remote_git(url: str) -> Path:
 
     cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
     
-    # Rechten bug-fix: Forceer het opschonen van de cache map via sudo als Docker deze heeft geblokkeerd.
     if cache_dir.exists():
         if platform.system() != "Windows":
             subprocess.run(f"sudo rm -rf {cache_dir}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             shutil.rmtree(cache_dir, ignore_errors=True)
 
-    # Shallow clone (--depth 1) hersteld voor maximale snelheid
     clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, url, str(cache_dir)]
     result = subprocess.run(clone_cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
         UI.error(t('clone_fail'))
-        # Foutmelding debug-output hersteld!
         print(f"\n{UI.RED}Git Error Details:{UI.RESET}\n{result.stderr.strip()}")
         sys.exit(1)
         
