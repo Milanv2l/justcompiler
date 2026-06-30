@@ -6,7 +6,8 @@ $BRANCH = "main"
 $BASE_URL = "https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH"
 
 $INSTALL_DIR = "$HOME\.justcompiler"
-$PYTHON_FILES = @("justcompiler.py", "core.py", "engine.py", "baremetal.py", "plugins.json")
+# baremetal.py verwijderd, docker_manager.py toegevoegd
+$PYTHON_FILES = @("justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json")
 
 Write-Host "--- JustCompiler Updater ---" -ForegroundColor Cyan
 Write-Host "[INFO] Fetching updates from repository..." -ForegroundColor Cyan
