@@ -3,11 +3,12 @@ set -e
 
 GITHUB_USER="Milanv2l"
 GITHUB_REPO="justcompiler"
-BRANCH="main" # Aangepast naar 'master' op basis van jouw URL
+BRANCH="main" 
 BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH"
 
 INSTALL_DIR="$HOME/.justcompiler"
-PYTHON_FILES=("justcompiler.py" "core.py" "engine.py" "baremetal.py" "plugins.json")
+# baremetal.py verwijderd, docker_manager.py toegevoegd
+PYTHON_FILES=("justcompiler.py" "core.py" "engine.py" "docker_manager.py" "plugins.json")
 
 echo "--- JustCompiler Installer ---"
 
