@@ -1,4 +1,3 @@
-cat << 'EOF' > /home/milanv_/.justcompiler/justcompiler.py
 import os
 import sys
 import subprocess
@@ -265,4 +264,3 @@ if __name__ == "__main__":
         )
             
         input(f"\n{UI.DIM}Press Enter to return to dashboard...{UI.RESET}")
-EOF
