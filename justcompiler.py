@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import baremetal
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 CURRENT_STATUS = "Standby"
 
 def status_reporter_loop():
@@ -38,6 +38,16 @@ def init_terminal_colors():
         except Exception: 
             pass
 
+def clear_screen():
+    """Veilige scherm-wisser die niet crasht als core.py een andere versie heeft."""
+    if hasattr(UI, 'clear'):
+        try:
+            UI.clear()
+            return
+        except Exception:
+            pass
+    os.system('cls' if os.name == 'nt' else 'clear')
+
 def check_for_updates():
     global CURRENT_STATUS
     CURRENT_STATUS = "Checking updates..."
@@ -58,7 +68,7 @@ def check_for_updates():
         pass
 
 def show_tui_header():
-    UI.clear()
+    clear_screen()
     system_str = f"{platform.system()} ({platform.machine()})"
     docker_status = f"{UI.GREEN}Available{UI.RESET}" if shutil.which("docker") else f"{UI.RED}Missing{UI.RESET}"
     
@@ -68,7 +78,11 @@ def show_tui_header():
         f"{UI.DIM}─────────────────────────────────────────────────────────────────────────{UI.RESET}",
         f"Shortcut: Press {UI.BOLD}'s' + Enter{UI.RESET} at any time to request diagnostic health logs."
     ]
-    UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
+    if hasattr(UI, 'draw_panel'):
+        UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
+    else:
+        print(f"\n=== JustCompiler Hub ===")
+        for line in lines: print(line)
     print()
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str):
@@ -90,45 +104,59 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
     image_tag = f"justcompiler-engine:{VERSION}"
 
     CURRENT_STATUS = "Building sandbox..."
-    dockerfile_content = """FROM ubuntu:26.04
+    
+    # Prachtige, schone Dockerfile zonder ontsnapte aanhalingstekens-hell
+    dockerfile_content = f"""FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \
-    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \
-    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \
-    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \
-    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \
-    dotnet-sdk-10.0 \
+RUN apt-get update && apt-get install -y \\
+    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
+    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
+    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
+    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
+    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
 RUN npm install -g pnpm yarn
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh && chmod +x dotnet-install.sh && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && rm dotnet-install.sh
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
 WORKDIR /workspace
 COPY core.py engine.py plugins.json /workspace/
-ENTRYPOINT ["/bin/bash", "-c", "mkdir -p /workspace/artifacts && cp -R /workspace/src /workspace/build_src && python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts \"$@\"", "--"]
+COPY entrypoint.sh /workspace/entrypoint.sh
+RUN chmod +x /workspace/entrypoint.sh
+ENTRYPOINT ["/workspace/entrypoint.sh"]
 """
+
+    # Het dynamische entrypoint script dat de argumenten veilig doorsluist via "$@"
+    entrypoint_content = """#!/bin/bash
+mkdir -p /workspace/artifacts
+if [ -d /workspace/src ]; then
+    cp -R /workspace/src /workspace/build_src
+fi
+exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts "$@"
+"""
+
     dockerfile_path = host_dir / "Dockerfile"
+    entrypoint_path = host_dir / "entrypoint.sh"
     dockerignore_path = host_dir / ".dockerignore"
     
     try:
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
-        # VOORKOM BUILD CONTEXT VERVUILING: Sluit zware cache-mappen uit
+        entrypoint_path.write_text(entrypoint_content, encoding="utf-8")
         dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
         
         show_tui_header()
-        print(f"{UI.CYAN}➔ Bouwen van de Docker Sandbox Image...{UI.RESET}")
-        print(f"{UI.DIM}Dit gebeurt alleen de allereerste keer en kan 5-10 minuten duren vanwege alle compilers.{UI.RESET}")
-        print(f"{UI.DIM}De download-voortgang wordt hieronder live weergegeven:{UI.RESET}\n")
+        print(f"{UI.CYAN}➔ Synchroniseren van de Docker Sandbox Image...{UI.RESET}")
+        print(f"{UI.DIM}Als de image al is opgebouwd, duurt deze controle minder dan een seconde.{UI.RESET}\n")
         print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}")
         
-        # LIVE OUTPUT INSTELLING: stdout=DEVNULL wegehaald zodat je kunt zien wat er gebeurt!
         subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)])
         print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}\n")
     finally:
         if dockerfile_path.exists(): dockerfile_path.unlink()
+        if entrypoint_path.exists(): entrypoint_path.unlink()
         if dockerignore_path.exists(): dockerignore_path.unlink()
 
     home = Path.home()
@@ -211,7 +239,11 @@ def handle_remote_git(url: str) -> Path:
         url, branch = [p.strip() for p in url.split("#", 1)]
 
     if not branch:
-        with UI.spinner("Querying remote Git repository for available branches..."):
+        if hasattr(UI, 'spinner'):
+            with UI.spinner("Querying remote Git repository for available branches..."):
+                default_branch, other_branches = fetch_remote_git_info(url)
+        else:
+            print("Querying remote Git repository for available branches...")
             default_branch, other_branches = fetch_remote_git_info(url)
         
         show_tui_header()
@@ -219,7 +251,12 @@ def handle_remote_git(url: str) -> Path:
         for idx, br in enumerate(other_branches, 2):
             branch_lines.append(f" [{idx}] 🌿 {br}")
         
-        UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
+        if hasattr(UI, 'draw_panel'):
+            UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
+        else:
+            print("=== Branch Selection ===")
+            for bl in branch_lines: print(bl)
+            
         max_choice = len(other_branches) + 1
         
         try:
@@ -263,7 +300,7 @@ if __name__ == "__main__":
     init_terminal_colors()
     check_for_updates()
 
-    UI.clear()
+    clear_screen()
     print(f"{UI.CYAN}Select interface language / Kies taal:{UI.RESET}")
     print("  [1] English (Default)")
     print("  [2] Nederlands")
@@ -282,7 +319,11 @@ if __name__ == "__main__":
             f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
             f"{UI.RED} {t('menu_3')}{UI.RESET}"
         ]
-        UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
+        if hasattr(UI, 'draw_panel'):
+            UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
+        else:
+            print(f"=== {t('title')} ===")
+            for mi in menu_items: print(mi)
         
         choice = input(f"\n{UI.BOLD}➔ {t('choice_prompt')}{UI.RESET}").strip()
         target = None
@@ -297,7 +338,7 @@ if __name__ == "__main__":
             if url: 
                 target = handle_remote_git(url)
         else:
-            UI.clear()
+            clear_screen()
             sys.exit(0)
 
         if not target or not target.exists():
@@ -310,7 +351,11 @@ if __name__ == "__main__":
 
         show_tui_header()
         env_lines = [f" [1] {t('env_1')}", f" [2] {t('env_2')}"]
-        UI.draw_panel(t('env_title'), env_lines, color=UI.YELLOW)
+        if hasattr(UI, 'draw_panel'):
+            UI.draw_panel(t('env_title'), env_lines, color=UI.YELLOW)
+        else:
+            print(f"=== {t('env_title')} ===")
+            for el in env_lines: print(el)
         env_choice = input(f"\n{UI.BOLD}➔ {t('env_choice')}{UI.RESET}").strip()
 
         if env_choice == "2":
