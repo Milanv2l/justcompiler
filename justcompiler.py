@@ -12,7 +12,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.1.9"
+VERSION = "1.1.10"
 CURRENT_STATUS = "Standby"
 
 def set_current_status(msg: str):
