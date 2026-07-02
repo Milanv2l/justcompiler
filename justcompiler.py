@@ -4,33 +4,18 @@ import subprocess
 import shutil
 import platform
 import urllib.request
-import threading
 import time
 from pathlib import Path
 import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.2.3"
+VERSION = "1.1.9"
 CURRENT_STATUS = "Standby"
 
 def set_current_status(msg: str):
     global CURRENT_STATUS
     CURRENT_STATUS = msg
-    show_tui_header()
-
-def status_reporter_loop():
-    while True:
-        try:
-            user_input = input().strip().lower()
-            if user_input == 's':
-                print(f"\n{UI.CYAN}[JUSTCOMPILER STATUS]: {CURRENT_STATUS}{UI.RESET}\n")
-        except (IOError, ValueError, EOFError):
-            break
-
-def start_status_listener():
-    t_thread = threading.Thread(target=status_reporter_loop, daemon=True)
-    t_thread.start()
 
 def init_terminal_colors():
     if os.name == 'nt':
@@ -69,7 +54,7 @@ def show_tui_header():
         f"{UI.BOLD}Version:{UI.RESET} {VERSION}  │  {UI.BOLD}System:{UI.RESET} {system_str}",
         f"{UI.BOLD}Docker Environment:{UI.RESET} {docker_status}  │  {UI.BOLD}Status:{UI.RESET} {UI.YELLOW}{CURRENT_STATUS}{UI.RESET}",
         f"{UI.DIM}─────────────────────────────────────────────────────────────────────────{UI.RESET}",
-        f"Shortcut: Press {UI.BOLD}'s' + Enter{UI.RESET} at any time to request diagnostic health logs."
+        f"JustCompiler is running in secure container sandbox mode."
     ]
     
     if hasattr(UI, 'draw_panel'):
@@ -78,7 +63,6 @@ def show_tui_header():
         print(f"\n=== JustCompiler Hub ===")
         for line in lines: print(line)
     
-    # Extra flush om zeker te zijn dat terminal buffers leeg zijn voordat input() start
     sys.stdout.flush()
 
 def handle_uninstall():
@@ -133,6 +117,7 @@ def fetch_remote_git_info(url: str) -> tuple:
 
 def handle_remote_git(url: str) -> Path:
     set_current_status("Fetching git metadata...")
+    show_tui_header()
     branch = None
     if "#" in url: 
         url, branch = [p.strip() for p in url.split("#", 1)]
@@ -146,6 +131,8 @@ def handle_remote_git(url: str) -> Path:
             default_branch, other_branches = fetch_remote_git_info(url)
         
         set_current_status("Awaiting branch selection")
+        show_tui_header()
+        
         branch_lines = [f" [1] 🌟 Default / Standaard ({default_branch})"]
         for idx, br in enumerate(other_branches, 2):
             branch_lines.append(f" [{idx}] 🌿 {br}")
@@ -159,6 +146,7 @@ def handle_remote_git(url: str) -> Path:
         max_choice = len(other_branches) + 1
         
         try:
+            sys.stdout.flush()
             choice_input = input(f"\n{UI.BOLD}➔ Select branch [1-{max_choice}]: {UI.RESET}").strip()
             if choice_input.isdigit():
                 choice_idx = int(choice_input)
@@ -174,6 +162,7 @@ def handle_remote_git(url: str) -> Path:
             branch = default_branch
 
     set_current_status(f"Cloning branch: {branch}")
+    show_tui_header()
     UI.info(t('cloning'))
 
     cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
@@ -210,15 +199,15 @@ if __name__ == "__main__":
     selected_lang = "nl" if lang_choice == "2" else "en"
     core.set_lang(selected_lang)
 
+    show_tui_header()
     check_for_updates()
 
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
-    start_status_listener()
-
     while True:
         set_current_status("Awaiting instructions")
+        show_tui_header()
         
         menu_items = [
             f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
@@ -232,18 +221,19 @@ if __name__ == "__main__":
             print(f"=== {t('title')} ===")
             for mi in menu_items: print(mi)
         
-        # OPLOSSING: Directe sys.stdout.flush voor robuuste TUI input-rendering
         sys.stdout.flush()
         choice = input(f"\n{UI.BOLD}➔ {t('choice_prompt')}{UI.RESET}").strip()
         target = None
 
         if choice == "1":
             set_current_status("Waiting for local path")
+            show_tui_header()
             sys.stdout.flush()
             path_input = input(f"{UI.BOLD}➔ {t('path_prompt')}{UI.RESET}").strip()
             target = Path(path_input) if path_input else Path(".")
         elif choice == "2":
             set_current_status("Waiting for Git URL")
+            show_tui_header()
             sys.stdout.flush()
             url = input(f"{UI.BOLD}➔ {t('git_prompt')}{UI.RESET}").strip()
             if url: 
@@ -258,6 +248,7 @@ if __name__ == "__main__":
             continue
 
         set_current_status("Checking configuration")
+        show_tui_header()
         sys.stdout.flush()
         tests = input(f"{UI.BOLD}➔ {t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
@@ -266,6 +257,7 @@ if __name__ == "__main__":
 
         if local_tags:
             set_current_status("Awaiting version selection")
+            show_tui_header()
             version_lines = [f" [1] 🌟 Default / Standaard ({VERSION}) [Aanbevolen]"]
             for idx, tag in enumerate(local_tags, start=2):
                 version_lines.append(f" [{idx}] 📦 Hergebruik containerversie: {tag}")
@@ -286,8 +278,9 @@ if __name__ == "__main__":
                 elif 2 <= v_idx <= len(local_tags) + 1:
                     version_to_use = local_tags[v_idx - 2]
 
-        # Start sandbox (zonder bare-metal keuzemenu want die is nu overbodig!)
         set_current_status("Preparing Sandbox...")
+        show_tui_header()
+        
         docker_manager.bootstrap_sandbox(
             target_path=target, 
             artifacts_path=artifacts_folder, 
