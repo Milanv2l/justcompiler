@@ -58,9 +58,14 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
             UI.error(t('err_custom_version_missing', version=version_to_use))
             sys.exit(1)
 
-        set_status_fn(t('docker_building_base'))
+        # STAP 1: Controleer of de zware basisomgeving (justcompiler-base) al lokaal bestaat
+        check_base = subprocess.run(docker_cmd + ["images", "-q", "justcompiler-base:latest"], capture_output=True, text=True)
         
-        dockerfile_content = f"""FROM ubuntu:26.04
+        if not check_base.stdout.strip():
+            set_status_fn(t('docker_building_base'))
+            print(f"{UI.CYAN}➔ Basisomgeving niet gevonden. Eenmalig downloaden en opbouwen van alle compilers...{UI.RESET}")
+            
+            base_dockerfile_content = """FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
     curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
@@ -76,6 +81,22 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
+"""
+            base_dockerfile_path = host_dir / "Dockerfile.base"
+            try:
+                base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
+                print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}")
+                subprocess.run(docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", "justcompiler-base:latest", str(host_dir)])
+                print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}\n")
+            finally:
+                if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
+        else:
+            print(f"{UI.GREEN}✔ Lokale basisomgeving (justcompiler-base:latest) gedetecteerd. Geen downloads nodig!{UI.RESET}")
+
+        # STAP 2: Bouw de vederlichte engine layer (duurt < 0.5 seconde, hergebruikt de lokale basis)
+        set_status_fn("Snelkoppeling maken...")
+        
+        dockerfile_content = f"""FROM justcompiler-base:latest
 WORKDIR /workspace
 COPY core.py engine.py plugins.json /workspace/
 COPY entrypoint.sh /workspace/entrypoint.sh
@@ -98,12 +119,8 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
             entrypoint_path.write_text(entrypoint_content, encoding="utf-8")
             dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
             
-            print(f"{UI.CYAN}➔ Synchroniseren van de Docker Sandbox Image...{UI.RESET}")
-            print(f"{UI.DIM}Als de image al is opgebouwd, duurt deze controle minder dan een seconde.{UI.RESET}\n")
-            print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}")
-            
-            subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)])
-            print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}\n")
+            print(f"{UI.CYAN}➔ Synchroniseren van de script-updates in de sandbox...{UI.RESET}")
+            subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         finally:
             if dockerfile_path.exists(): dockerfile_path.unlink()
             if entrypoint_path.exists(): entrypoint_path.unlink()
@@ -116,11 +133,15 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
     for p in cache_dirs.values(): 
         p.mkdir(parents=True, exist_ok=True)
 
+    # Alle cache-mappen worden nu daadwerkelijk gekoppeld aan de container voor optimaal hergebruik
     run_cmd = docker_cmd + [
         "run", "--name", "justcompiler_active_run", "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
+        "-v", f"{cache_dirs['npm']}:/root/.npm:z",
+        "-v", f"{cache_dirs['pip']}:/root/.cache/pip:z",
+        "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
         image_tag, "--lang", lang
     ]
     if run_tests: 
