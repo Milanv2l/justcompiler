@@ -11,7 +11,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.1.10"
+VERSION = "1.2.3"
 CURRENT_STATUS = "Standby"
 
 def set_current_status(msg: str):
@@ -71,8 +71,15 @@ def show_tui_header():
         f"{UI.DIM}─────────────────────────────────────────────────────────────────────────{UI.RESET}",
         f"Shortcut: Press {UI.BOLD}'s' + Enter{UI.RESET} at any time to request diagnostic health logs."
     ]
-    UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
-    print()
+    
+    if hasattr(UI, 'draw_panel'):
+        UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
+    else:
+        print(f"\n=== JustCompiler Hub ===")
+        for line in lines: print(line)
+    
+    # Extra flush om zeker te zijn dat terminal buffers leeg zijn voordat input() start
+    sys.stdout.flush()
 
 def handle_uninstall():
     print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
@@ -94,7 +101,6 @@ def handle_uninstall():
         subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"{UI.GREEN}[OK] JustCompiler has been completely uninstalled.{UI.RESET}")
     sys.exit(0)
-
 
 def fetch_remote_git_info(url: str) -> tuple:
     env = os.environ.copy()
@@ -125,7 +131,6 @@ def fetch_remote_git_info(url: str) -> tuple:
         all_branches.remove(default_branch)
     return default_branch, all_branches
 
-
 def handle_remote_git(url: str) -> Path:
     set_current_status("Fetching git metadata...")
     branch = None
@@ -133,7 +138,11 @@ def handle_remote_git(url: str) -> Path:
         url, branch = [p.strip() for p in url.split("#", 1)]
 
     if not branch:
-        with UI.spinner("Querying remote Git repository for available branches..."):
+        if hasattr(UI, 'spinner'):
+            with UI.spinner("Querying remote Git repository for available branches..."):
+                default_branch, other_branches = fetch_remote_git_info(url)
+        else:
+            print("Querying remote Git repository for available branches...")
             default_branch, other_branches = fetch_remote_git_info(url)
         
         set_current_status("Awaiting branch selection")
@@ -141,7 +150,12 @@ def handle_remote_git(url: str) -> Path:
         for idx, br in enumerate(other_branches, 2):
             branch_lines.append(f" [{idx}] 🌿 {br}")
         
-        UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
+        if hasattr(UI, 'draw_panel'):
+            UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
+        else:
+            print("=== Branch Selection ===")
+            for bl in branch_lines: print(bl)
+            
         max_choice = len(other_branches) + 1
         
         try:
@@ -190,7 +204,10 @@ if __name__ == "__main__":
     print(f"{UI.CYAN}Select interface language / Kies taal:{UI.RESET}")
     print("  [1] English (Default)")
     print("  [2] Nederlands")
-    selected_lang = "nl" if input("\nChoice / Keuze [1-2]: ").strip() == "2" else "en"
+    
+    sys.stdout.flush()
+    lang_choice = input("\nChoice / Keuze [1-2]: ").strip()
+    selected_lang = "nl" if lang_choice == "2" else "en"
     core.set_lang(selected_lang)
 
     check_for_updates()
@@ -208,17 +225,26 @@ if __name__ == "__main__":
             f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
             f"{UI.RED} {t('menu_3')}{UI.RESET}"
         ]
-        UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
         
+        if hasattr(UI, 'draw_panel'):
+            UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
+        else:
+            print(f"=== {t('title')} ===")
+            for mi in menu_items: print(mi)
+        
+        # OPLOSSING: Directe sys.stdout.flush voor robuuste TUI input-rendering
+        sys.stdout.flush()
         choice = input(f"\n{UI.BOLD}➔ {t('choice_prompt')}{UI.RESET}").strip()
         target = None
 
         if choice == "1":
             set_current_status("Waiting for local path")
+            sys.stdout.flush()
             path_input = input(f"{UI.BOLD}➔ {t('path_prompt')}{UI.RESET}").strip()
             target = Path(path_input) if path_input else Path(".")
         elif choice == "2":
             set_current_status("Waiting for Git URL")
+            sys.stdout.flush()
             url = input(f"{UI.BOLD}➔ {t('git_prompt')}{UI.RESET}").strip()
             if url: 
                 target = handle_remote_git(url)
@@ -232,6 +258,7 @@ if __name__ == "__main__":
             continue
 
         set_current_status("Checking configuration")
+        sys.stdout.flush()
         tests = input(f"{UI.BOLD}➔ {t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
         version_to_use = VERSION
@@ -243,7 +270,13 @@ if __name__ == "__main__":
             for idx, tag in enumerate(local_tags, start=2):
                 version_lines.append(f" [{idx}] 📦 Hergebruik containerversie: {tag}")
             
-            UI.draw_panel(t('docker_version_detected_title'), version_lines, color=UI.CYAN)
+            if hasattr(UI, 'draw_panel'):
+                UI.draw_panel(t('docker_version_detected_title'), version_lines, color=UI.CYAN)
+            else:
+                print(f"=== {t('docker_version_detected_title')} ===")
+                for vl in version_lines: print(vl)
+                
+            sys.stdout.flush()
             v_choice = input(f"\n{UI.BOLD}➔ {t('docker_version_detected_prompt')}{UI.RESET}").strip()
             
             if v_choice.isdigit():
@@ -253,6 +286,8 @@ if __name__ == "__main__":
                 elif 2 <= v_idx <= len(local_tags) + 1:
                     version_to_use = local_tags[v_idx - 2]
 
+        # Start sandbox (zonder bare-metal keuzemenu want die is nu overbodig!)
+        set_current_status("Preparing Sandbox...")
         docker_manager.bootstrap_sandbox(
             target_path=target, 
             artifacts_path=artifacts_folder, 
@@ -263,4 +298,5 @@ if __name__ == "__main__":
             current_version=VERSION
         )
             
+        sys.stdout.flush()
         input(f"\n{UI.DIM}Press Enter to return to dashboard...{UI.RESET}")
