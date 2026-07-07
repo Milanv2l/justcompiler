@@ -330,7 +330,7 @@ def _detect_artifacts(folder: Path) -> list:
 
         # JAR — cross-platform
         if f.suffix == ".jar":
-            kind = "mod" if _is_mod_jar(f) else "jar"
+            kind = _classify_jar(f)
             found.append((kind, f.name, ["java", "-jar", str(f)]))
             continue
 
@@ -382,18 +382,24 @@ def _detect_artifacts(folder: Path) -> list:
 
     return found
 
-def _is_mod_jar(path: Path) -> bool:
+def _classify_jar(path: Path) -> str:
     import zipfile
     try:
         with zipfile.ZipFile(path) as z:
             names = z.namelist()
             if "fabric.mod.json" in names or "quilt.mod.json" in names:
-                return True
+                return "mod"
             if "META-INF/mods.toml" in names or "META-INF/neoforge.mods.toml" in names:
-                return True
+                return "mod"
+            if "plugin.yml" in names:
+                return "plugin"
+            if "bungee.yml" in names:
+                return "bungee-plugin"
+            if "velocity-plugin.json" in names:
+                return "velocity-plugin"
     except Exception:
         pass
-    return False
+    return "jar"
 
 if __name__ == "__main__":
     init_terminal_colors()

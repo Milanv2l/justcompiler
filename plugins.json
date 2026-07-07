@@ -172,6 +172,73 @@
         "out_exts": [".jar"]
     },
     {
+        "name": "Minecraft Plugin (Bukkit/Paper)",
+        "detect": ["plugin.yml"],
+        "tool": "mvn",
+        "wrapper": "mvnw",
+        "cmd_system": "mvn clean package -DskipTests",
+        "out_dirs": ["target", "build/libs"],
+        "out_exts": [".jar"]
+    },
+    {
+        "name": "Minecraft Plugin (BungeeCord)",
+        "detect": ["bungee.yml"],
+        "tool": "mvn",
+        "wrapper": "mvnw",
+        "cmd_system": "mvn clean package -DskipTests",
+        "out_dirs": ["target", "build/libs"],
+        "out_exts": [".jar"]
+    },
+    {
+        "name": "Minecraft Plugin (Velocity)",
+        "detect": ["velocity-plugin.json"],
+        "tool": "mvn",
+        "wrapper": "mvnw",
+        "cmd_system": "mvn clean package -DskipTests",
+        "out_dirs": ["target", "build/libs"],
+        "out_exts": [".jar"]
+    },
+    {
+        "name": "FiveM/RedM Script",
+        "detect": ["fxmanifest.lua", "__resource.lua"],
+        "tool": "lua",
+        "cmd_system": "mkdir -p dist && cp -r . dist/ 2>/dev/null; echo 'Script ready'",
+        "out_dirs": ["dist", "."],
+        "out_exts": ["*DIR*", ".zip"]
+    },
+    {
+        "name": "Terraria Mod (tModLoader)",
+        "detect": ["build.txt"],
+        "tool": "dotnet",
+        "cmd_system": "dotnet build -c Release",
+        "out_dirs": ["bin/Release/netstandard2.0", "bin/Release"],
+        "out_exts": [".tmod", ".dll"]
+    },
+    {
+        "name": "Luanti Mod (formerly Minetest)",
+        "detect": ["mod.conf"],
+        "tool": "lua",
+        "cmd_system": "echo 'No build step needed'",
+        "out_dirs": ["."],
+        "out_exts": ["*DIR*"]
+    },
+    {
+        "name": "Godot Game",
+        "detect": ["project.godot"],
+        "tool": "godot",
+        "cmd_system": "godot --headless --export-release 'Linux/X11' 2>/dev/null || echo 'Export preset not configured; use Godot editor'",
+        "out_dirs": ["build", "dist", "exports"],
+        "out_exts": [".exe", ".pck", ".apk", ".x86_64"]
+    },
+    {
+        "name": "World of Warcraft Addon",
+        "detect": ["*.toc"],
+        "tool": "wow",
+        "cmd_system": "echo 'No build step needed'",
+        "out_dirs": ["."],
+        "out_exts": ["*DIR*"]
+    },
+    {
         "name": "Android (Gradle)",
         "detect": ["AndroidManifest.xml"],
         "tool": "gradle",
