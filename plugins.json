@@ -47,7 +47,15 @@
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
         "out_dirs": ["build", "release", "bin", "."],
         "out_exts": [".exe", "", ".appimage", ".so"],
-        "specificity": 3
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "Qt6 Runtime",
+                "apt": "qt6-base-dev libqt6widgets6 libqt6gui6",
+                "pacman": "qt6-base",
+                "dnf": "qt6-qtbase-devel"
+            }
+        ]
     },
     {
         "name": "C++ (Qt5 / qmake)",
@@ -56,7 +64,15 @@
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
         "out_dirs": ["build", "release", "bin", "."],
         "out_exts": [".exe", "", ".appimage", ".so"],
-        "specificity": 3
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "Qt5 Runtime",
+                "apt": "qtbase5-dev libqt5widgets5 libqt5gui5",
+                "pacman": "qt5-base",
+                "dnf": "qt5-qtbase-devel"
+            }
+        ]
     },
     {
         "name": "C++ (CMake)",
@@ -110,7 +126,15 @@
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release", "bin/x64/Release"],
         "out_exts": [".exe", ".dll", "*DIR*"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": ".NET Runtime",
+                "apt": "dotnet-runtime-8.0",
+                "pacman": "dotnet-runtime",
+                "dnf": "dotnet-runtime-8.0"
+            }
+        ]
     },
     {
         "name": "F# (.NET Core)",
@@ -119,7 +143,15 @@
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release"],
         "out_exts": [".exe", ".dll", "*DIR*"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": ".NET Runtime",
+                "apt": "dotnet-runtime-8.0",
+                "pacman": "dotnet-runtime",
+                "dnf": "dotnet-runtime-8.0"
+            }
+        ]
     },
     {
         "name": "Visual Basic (.NET)",
@@ -128,7 +160,15 @@
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release"],
         "out_exts": [".exe", ".dll", "*DIR*"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": ".NET Runtime",
+                "apt": "dotnet-runtime-8.0",
+                "pacman": "dotnet-runtime",
+                "dnf": "dotnet-runtime-8.0"
+            }
+        ]
     },
     {
         "name": "Python (PyInstaller / setuptools)",
@@ -137,7 +177,27 @@
         "cmd_system": "DYNAMIC_PYTHON_RESOLUTION",
         "out_dirs": ["dist", "build"],
         "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "PyGObject (GTK)",
+                "apt": "gir1.2-gtk-3.0 python3-gi",
+                "pacman": "python-gobject gtk3",
+                "dnf": "python3-gobject gtk3"
+            },
+            {
+                "pkg": "PyQt5",
+                "apt": "python3-pyqt5",
+                "pacman": "python-pyqt5",
+                "dnf": "python3-qt5"
+            },
+            {
+                "pkg": "Tkinter",
+                "apt": "python3-tk",
+                "pacman": "python-tkinter",
+                "dnf": "python3-tkinter"
+            }
+        ]
     },
     {
         "name": "Python (Poetry)",
@@ -146,7 +206,21 @@
         "cmd_system": "poetry install && poetry build",
         "out_dirs": ["dist"],
         "out_exts": [".whl", ".tar.gz"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "PyGObject (GTK)",
+                "apt": "gir1.2-gtk-3.0 python3-gi",
+                "pacman": "python-gobject gtk3",
+                "dnf": "python3-gobject gtk3"
+            },
+            {
+                "pkg": "PyQt5",
+                "apt": "python3-pyqt5",
+                "pacman": "python-pyqt5",
+                "dnf": "python3-qt5"
+            }
+        ]
     },
     {
         "name": "Python (PDM)",
@@ -155,7 +229,21 @@
         "cmd_system": "pdm install && pdm build",
         "out_dirs": ["dist"],
         "out_exts": [".whl", ".tar.gz"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "PyGObject (GTK)",
+                "apt": "gir1.2-gtk-3.0 python3-gi",
+                "pacman": "python-gobject gtk3",
+                "dnf": "python3-gobject gtk3"
+            },
+            {
+                "pkg": "PyQt5",
+                "apt": "python3-pyqt5",
+                "pacman": "python-pyqt5",
+                "dnf": "python3-qt5"
+            }
+        ]
     },
     {
         "name": "Java (Gradle)",
@@ -165,7 +253,15 @@
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "app/build/libs", "build/distributions"],
         "out_exts": [".jar", ".war", ".ear", ".zip"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Java (Maven)",
@@ -175,7 +271,15 @@
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build"],
         "out_exts": [".jar", ".war", ".ear"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Java (Ant)",
@@ -184,7 +288,15 @@
         "cmd_system": "ant compile jar",
         "out_dirs": ["dist", "build", "out"],
         "out_exts": [".jar"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Kotlin (Gradle)",
@@ -194,7 +306,15 @@
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "app/build/outputs"],
         "out_exts": [".jar", ".apk", ".aab"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Minecraft Mod (Fabric/Forge/Quilt)",
@@ -204,7 +324,15 @@
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "build/distributions"],
         "out_exts": [".jar"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Minecraft Plugin (Bukkit/Paper)",
@@ -214,7 +342,15 @@
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
         "out_exts": [".jar"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Minecraft Plugin (BungeeCord)",
@@ -224,7 +360,15 @@
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
         "out_exts": [".jar"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Minecraft Plugin (Velocity)",
@@ -234,7 +378,15 @@
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
         "out_exts": [".jar"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "FiveM/RedM Script",
@@ -252,7 +404,15 @@
         "cmd_system": "dotnet build -c Release",
         "out_dirs": ["bin/Release/netstandard2.0", "bin/Release"],
         "out_exts": [".tmod", ".dll"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": ".NET Runtime",
+                "apt": "dotnet-runtime-8.0",
+                "pacman": "dotnet-runtime",
+                "dnf": "dotnet-runtime-8.0"
+            }
+        ]
     },
     {
         "name": "Luanti Mod (formerly Minetest)",
@@ -270,7 +430,15 @@
         "cmd_system": "godot --headless --export-release 'Linux/X11' 2>/dev/null || echo 'Export preset not configured; use Godot editor'",
         "out_dirs": ["build", "dist", "exports"],
         "out_exts": [".exe", ".pck", ".apk", ".x86_64"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Godot Runtime",
+                "apt": "godot godot3",
+                "pacman": "godot",
+                "dnf": "godot"
+            }
+        ]
     },
     {
         "name": "World of Warcraft Addon",
@@ -289,7 +457,15 @@
         "cmd_system": "gradle assembleRelease",
         "out_dirs": ["app/build/outputs/apk", "app/build/outputs/bundle"],
         "out_exts": [".apk", ".aab"],
-        "specificity": 8
+        "specificity": 8,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Scala (SBT)",
@@ -298,7 +474,15 @@
         "cmd_system": "sbt assembly",
         "out_dirs": ["target/scala-2.13", "target/scala-3"],
         "out_exts": [".jar"],
-        "specificity": 3
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "Java Runtime (JRE)",
+                "apt": "default-jre",
+                "pacman": "jre-openjdk",
+                "dnf": "java-latest-openjdk"
+            }
+        ]
     },
     {
         "name": "Node.js (PNPM)",
@@ -307,7 +491,15 @@
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release", "out/main", ".next", "public"],
         "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Node.js",
+                "apt": "nodejs",
+                "pacman": "nodejs",
+                "dnf": "nodejs"
+            }
+        ]
     },
     {
         "name": "Node.js (Yarn)",
@@ -316,7 +508,15 @@
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release", ".next"],
         "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Node.js",
+                "apt": "nodejs",
+                "pacman": "nodejs",
+                "dnf": "nodejs"
+            }
+        ]
     },
     {
         "name": "Node.js (NPM)",
@@ -325,7 +525,15 @@
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release"],
         "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Node.js",
+                "apt": "nodejs",
+                "pacman": "nodejs",
+                "dnf": "nodejs"
+            }
+        ]
     },
     {
         "name": "Node.js (Bun)",
@@ -334,7 +542,15 @@
         "cmd_system": "bun install && bun run build",
         "out_dirs": ["dist", "build", "out"],
         "out_exts": ["*DIR*", ".js"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Node.js",
+                "apt": "nodejs",
+                "pacman": "nodejs",
+                "dnf": "nodejs"
+            }
+        ]
     },
     {
         "name": "Deno",
@@ -343,7 +559,15 @@
         "cmd_system": "deno task build",
         "out_dirs": ["dist", "build", "out"],
         "out_exts": [".exe", "", ".js"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Deno Runtime",
+                "apt": "deno",
+                "pacman": "deno",
+                "dnf": "deno"
+            }
+        ]
     },
     {
         "name": "Go (Modules)",
@@ -397,7 +621,15 @@
         "cmd_system": "bundle install --standalone",
         "out_dirs": ["bundle", "."],
         "out_exts": ["*DIR*", ".gem"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "Ruby Runtime",
+                "apt": "ruby ruby-dev",
+                "pacman": "ruby",
+                "dnf": "ruby ruby-devel"
+            }
+        ]
     },
     {
         "name": "Ruby (Rake)",
@@ -415,7 +647,15 @@
         "cmd_system": "composer install --no-dev --optimize-autoloader",
         "out_dirs": ["vendor", "."],
         "out_exts": ["*DIR*"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "PHP Runtime",
+                "apt": "php php-cli php-xml php-mbstring",
+                "pacman": "php",
+                "dnf": "php php-cli php-xml php-mbstring"
+            }
+        ]
     },
     {
         "name": "PHP (Laravel)",
@@ -424,7 +664,15 @@
         "cmd_system": "composer install --no-dev --optimize-autoloader && php artisan optimize",
         "out_dirs": ["vendor", "public"],
         "out_exts": ["*DIR*"],
-        "specificity": 5
+        "specificity": 5,
+        "runtime_deps": [
+            {
+                "pkg": "PHP Runtime",
+                "apt": "php php-cli php-xml php-mbstring php-curl php-mysql",
+                "pacman": "php php-pgsql php-sqlite",
+                "dnf": "php php-cli php-xml php-mbstring php-curl php-mysqlnd"
+            }
+        ]
     },
     {
         "name": "Elixir (Mix)",
@@ -433,7 +681,15 @@
         "cmd_system": "mix deps.get && mix release",
         "out_dirs": ["_build/prod/rel", "_build/prod"],
         "out_exts": ["*DIR*", ""],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Erlang Runtime",
+                "apt": "erlang-base erlang-dev",
+                "pacman": "erlang",
+                "dnf": "erlang erlang-devel"
+            }
+        ]
     },
     {
         "name": "Erlang (Rebar3)",
@@ -478,7 +734,15 @@
         "cmd_system": "DYNAMIC_DART_RESOLUTION",
         "out_dirs": ["build/linux/x64/release/bundle", "build/web", "build/windows/x64/runner/Release"],
         "out_exts": ["*DIR*", ".apk", ".aab", ".exe"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Flutter Runtime / GTK3",
+                "apt": "flutter libgtk-3-dev",
+                "pacman": "flutter gtk3",
+                "dnf": "flutter gtk3-devel"
+            }
+        ]
     },
     {
         "name": "Dart (pub)",
@@ -487,7 +751,15 @@
         "cmd_system": "dart pub get && dart compile exe bin/main.dart -o build/main",
         "out_dirs": ["build"],
         "out_exts": ["", ".exe"],
-        "specificity": 10
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "Dart Runtime",
+                "apt": "dart",
+                "pacman": "dart",
+                "dnf": "dart"
+            }
+        ]
     },
     {
         "name": "Nim (nimble)",
