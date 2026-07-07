@@ -5,7 +5,8 @@
         "tool": "kernel-build",
         "cmd_system": "make defconfig && make -j$(nproc)",
         "out_dirs": ["arch/x86/boot", "."],
-        "out_exts": ["bzImage", "vmlinux", ".ko"]
+        "out_exts": ["bzImage", "vmlinux", ".ko"],
+        "specificity": 3
     },
     {
         "name": "Crystal",
@@ -13,7 +14,8 @@
         "tool": "shards",
         "cmd_system": "shards build --release",
         "out_dirs": ["bin"],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Vala (Meson)",
@@ -21,7 +23,8 @@
         "tool": "valac",
         "cmd_system": "meson setup build && meson compile -C build",
         "out_dirs": ["build"],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 3
     },
     {
         "name": "C++ (Qt6 / qmake)",
@@ -29,7 +32,8 @@
         "tool": "qmake6",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
         "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so"]
+        "out_exts": [".exe", "", ".appimage", ".so"],
+        "specificity": 3
     },
     {
         "name": "C++ (Qt5 / qmake)",
@@ -37,7 +41,8 @@
         "tool": "qmake",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
         "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so"]
+        "out_exts": [".exe", "", ".appimage", ".so"],
+        "specificity": 3
     },
     {
         "name": "C++ (CMake)",
@@ -45,7 +50,8 @@
         "tool": "cmake",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
         "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so", ".dll"]
+        "out_exts": [".exe", "", ".appimage", ".so", ".dll"],
+        "specificity": 3
     },
     {
         "name": "C++ (Autoconf / configure)",
@@ -53,7 +59,8 @@
         "tool": "autoconf",
         "cmd_system": "autoreconf -fi && ./configure && make -j$(nproc)",
         "out_dirs": ["build", "bin", "."],
-        "out_exts": [".exe", "", ".so"]
+        "out_exts": [".exe", "", ".so"],
+        "specificity": 3
     },
     {
         "name": "C/C++ (Makefile)",
@@ -61,7 +68,8 @@
         "tool": "make",
         "cmd_system": "make -j$(nproc)",
         "out_dirs": ["build", "bin", "."],
-        "out_exts": [".exe", "", ".so", ".o", ".a"]
+        "out_exts": [".exe", "", ".so", ".o", ".a"],
+        "specificity": 2
     },
     {
         "name": "C++ (Meson)",
@@ -69,7 +77,8 @@
         "tool": "meson",
         "cmd_system": "meson setup build && meson compile -C build",
         "out_dirs": ["build", "bin"],
-        "out_exts": [".exe", "", ".so"]
+        "out_exts": [".exe", "", ".so"],
+        "specificity": 3
     },
     {
         "name": "C++ (Bazel)",
@@ -77,7 +86,8 @@
         "tool": "bazel",
         "cmd_system": "bazel build //...",
         "out_dirs": ["bazel-bin", "bazel-out"],
-        "out_exts": [".exe", "", ".so", ".dll"]
+        "out_exts": [".exe", "", ".so", ".dll"],
+        "specificity": 3
     },
     {
         "name": "C# (.NET Core / SDK)",
@@ -85,7 +95,8 @@
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release", "bin/x64/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"]
+        "out_exts": [".exe", ".dll", "*DIR*"],
+        "specificity": 10
     },
     {
         "name": "F# (.NET Core)",
@@ -93,7 +104,8 @@
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"]
+        "out_exts": [".exe", ".dll", "*DIR*"],
+        "specificity": 10
     },
     {
         "name": "Visual Basic (.NET)",
@@ -101,7 +113,8 @@
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
         "out_dirs": ["dist", "bin/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"]
+        "out_exts": [".exe", ".dll", "*DIR*"],
+        "specificity": 10
     },
     {
         "name": "Python (PyInstaller / setuptools)",
@@ -109,7 +122,8 @@
         "tool": "python3",
         "cmd_system": "DYNAMIC_PYTHON_RESOLUTION",
         "out_dirs": ["dist", "build"],
-        "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"]
+        "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"],
+        "specificity": 10
     },
     {
         "name": "Python (Poetry)",
@@ -117,7 +131,8 @@
         "tool": "poetry",
         "cmd_system": "poetry install && poetry build",
         "out_dirs": ["dist"],
-        "out_exts": [".whl", ".tar.gz"]
+        "out_exts": [".whl", ".tar.gz"],
+        "specificity": 10
     },
     {
         "name": "Python (PDM)",
@@ -125,7 +140,8 @@
         "tool": "pdm",
         "cmd_system": "pdm install && pdm build",
         "out_dirs": ["dist"],
-        "out_exts": [".whl", ".tar.gz"]
+        "out_exts": [".whl", ".tar.gz"],
+        "specificity": 10
     },
     {
         "name": "Java (Gradle)",
@@ -134,7 +150,8 @@
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "app/build/libs", "build/distributions"],
-        "out_exts": [".jar", ".war", ".ear", ".zip"]
+        "out_exts": [".jar", ".war", ".ear", ".zip"],
+        "specificity": 10
     },
     {
         "name": "Java (Maven)",
@@ -143,7 +160,8 @@
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build"],
-        "out_exts": [".jar", ".war", ".ear"]
+        "out_exts": [".jar", ".war", ".ear"],
+        "specificity": 10
     },
     {
         "name": "Java (Ant)",
@@ -151,7 +169,8 @@
         "tool": "ant",
         "cmd_system": "ant compile jar",
         "out_dirs": ["dist", "build", "out"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 10
     },
     {
         "name": "Kotlin (Gradle)",
@@ -160,7 +179,8 @@
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "app/build/outputs"],
-        "out_exts": [".jar", ".apk", ".aab"]
+        "out_exts": [".jar", ".apk", ".aab"],
+        "specificity": 10
     },
     {
         "name": "Minecraft Mod (Fabric/Forge/Quilt)",
@@ -169,7 +189,8 @@
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
         "out_dirs": ["build/libs", "build/distributions"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 8
     },
     {
         "name": "Minecraft Plugin (Bukkit/Paper)",
@@ -178,7 +199,8 @@
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 8
     },
     {
         "name": "Minecraft Plugin (BungeeCord)",
@@ -187,7 +209,8 @@
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 8
     },
     {
         "name": "Minecraft Plugin (Velocity)",
@@ -196,7 +219,8 @@
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
         "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 8
     },
     {
         "name": "FiveM/RedM Script",
@@ -204,7 +228,8 @@
         "tool": "lua",
         "cmd_system": "mkdir -p dist && cp -r . dist/ 2>/dev/null; echo 'Script ready'",
         "out_dirs": ["dist", "."],
-        "out_exts": ["*DIR*", ".zip"]
+        "out_exts": ["*DIR*", ".zip"],
+        "specificity": 8
     },
     {
         "name": "Terraria Mod (tModLoader)",
@@ -212,7 +237,8 @@
         "tool": "dotnet",
         "cmd_system": "dotnet build -c Release",
         "out_dirs": ["bin/Release/netstandard2.0", "bin/Release"],
-        "out_exts": [".tmod", ".dll"]
+        "out_exts": [".tmod", ".dll"],
+        "specificity": 8
     },
     {
         "name": "Luanti Mod (formerly Minetest)",
@@ -220,7 +246,8 @@
         "tool": "lua",
         "cmd_system": "echo 'No build step needed'",
         "out_dirs": ["."],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 8
     },
     {
         "name": "Godot Game",
@@ -228,7 +255,8 @@
         "tool": "godot",
         "cmd_system": "godot --headless --export-release 'Linux/X11' 2>/dev/null || echo 'Export preset not configured; use Godot editor'",
         "out_dirs": ["build", "dist", "exports"],
-        "out_exts": [".exe", ".pck", ".apk", ".x86_64"]
+        "out_exts": [".exe", ".pck", ".apk", ".x86_64"],
+        "specificity": 8
     },
     {
         "name": "World of Warcraft Addon",
@@ -236,7 +264,8 @@
         "tool": "wow",
         "cmd_system": "echo 'No build step needed'",
         "out_dirs": ["."],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 8
     },
     {
         "name": "Android (Gradle)",
@@ -245,7 +274,8 @@
         "wrapper": "gradlew",
         "cmd_system": "gradle assembleRelease",
         "out_dirs": ["app/build/outputs/apk", "app/build/outputs/bundle"],
-        "out_exts": [".apk", ".aab"]
+        "out_exts": [".apk", ".aab"],
+        "specificity": 8
     },
     {
         "name": "Scala (SBT)",
@@ -253,7 +283,8 @@
         "tool": "sbt",
         "cmd_system": "sbt assembly",
         "out_dirs": ["target/scala-2.13", "target/scala-3"],
-        "out_exts": [".jar"]
+        "out_exts": [".jar"],
+        "specificity": 3
     },
     {
         "name": "Node.js (PNPM)",
@@ -261,7 +292,8 @@
         "tool": "pnpm",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release", "out/main", ".next", "public"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "specificity": 5
     },
     {
         "name": "Node.js (Yarn)",
@@ -269,7 +301,8 @@
         "tool": "yarn",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release", ".next"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "specificity": 5
     },
     {
         "name": "Node.js (NPM)",
@@ -277,7 +310,8 @@
         "tool": "npm",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
         "out_dirs": ["dist", "build", "out", "release"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"]
+        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "specificity": 5
     },
     {
         "name": "Node.js (Bun)",
@@ -285,7 +319,8 @@
         "tool": "bun",
         "cmd_system": "bun install && bun run build",
         "out_dirs": ["dist", "build", "out"],
-        "out_exts": ["*DIR*", ".js"]
+        "out_exts": ["*DIR*", ".js"],
+        "specificity": 5
     },
     {
         "name": "Deno",
@@ -293,7 +328,8 @@
         "tool": "deno",
         "cmd_system": "deno task build",
         "out_dirs": ["dist", "build", "out"],
-        "out_exts": [".exe", "", ".js"]
+        "out_exts": [".exe", "", ".js"],
+        "specificity": 5
     },
     {
         "name": "Go (Modules)",
@@ -301,7 +337,8 @@
         "tool": "go",
         "cmd_system": "DYNAMIC_GO_RESOLUTION",
         "out_dirs": ["build_output", "bin", "dist", "."],
-        "out_exts": [".exe", "", ".bin"]
+        "out_exts": [".exe", "", ".bin"],
+        "specificity": 10
     },
     {
         "name": "Rust (Cargo)",
@@ -309,7 +346,8 @@
         "tool": "cargo",
         "cmd_system": "cargo build --release --workspace",
         "out_dirs": ["target/release", "target/release/deps", "dist"],
-        "out_exts": [".exe", "", ".so", ".dll", ".rlib"]
+        "out_exts": [".exe", "", ".so", ".dll", ".rlib"],
+        "specificity": 10
     },
     {
         "name": "Rust (Trunk / WASM)",
@@ -317,7 +355,8 @@
         "tool": "trunk",
         "cmd_system": "trunk build --release",
         "out_dirs": ["dist"],
-        "out_exts": ["*DIR*", ".wasm", ".js"]
+        "out_exts": ["*DIR*", ".wasm", ".js"],
+        "specificity": 10
     },
     {
         "name": "Swift (Swift Package Manager)",
@@ -325,7 +364,8 @@
         "tool": "swift",
         "cmd_system": "swift build -c release",
         "out_dirs": [".build/release", "build"],
-        "out_exts": ["", ".dylib", ".framework"]
+        "out_exts": ["", ".dylib", ".framework"],
+        "specificity": 10
     },
     {
         "name": "Xcode (iOS / macOS)",
@@ -333,7 +373,8 @@
         "tool": "xcodebuild",
         "cmd_system": "xcodebuild -scheme Release -configuration Release build",
         "out_dirs": ["build/Release", "DerivedData"],
-        "out_exts": [".app", ".ipa", ".framework"]
+        "out_exts": [".app", ".ipa", ".framework"],
+        "specificity": 3
     },
     {
         "name": "Ruby (Gems / Bundler)",
@@ -341,7 +382,8 @@
         "tool": "bundle",
         "cmd_system": "bundle install --standalone",
         "out_dirs": ["bundle", "."],
-        "out_exts": ["*DIR*", ".gem"]
+        "out_exts": ["*DIR*", ".gem"],
+        "specificity": 5
     },
     {
         "name": "Ruby (Rake)",
@@ -349,7 +391,8 @@
         "tool": "rake",
         "cmd_system": "bundle exec rake build",
         "out_dirs": ["pkg", "build", "dist"],
-        "out_exts": [".gem", "*DIR*"]
+        "out_exts": [".gem", "*DIR*"],
+        "specificity": 2
     },
     {
         "name": "PHP (Composer)",
@@ -357,7 +400,8 @@
         "tool": "composer",
         "cmd_system": "composer install --no-dev --optimize-autoloader",
         "out_dirs": ["vendor", "."],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 5
     },
     {
         "name": "PHP (Laravel)",
@@ -365,7 +409,8 @@
         "tool": "composer",
         "cmd_system": "composer install --no-dev --optimize-autoloader && php artisan optimize",
         "out_dirs": ["vendor", "public"],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 5
     },
     {
         "name": "Elixir (Mix)",
@@ -373,7 +418,8 @@
         "tool": "mix",
         "cmd_system": "mix deps.get && mix release",
         "out_dirs": ["_build/prod/rel", "_build/prod"],
-        "out_exts": ["*DIR*", ""]
+        "out_exts": ["*DIR*", ""],
+        "specificity": 10
     },
     {
         "name": "Erlang (Rebar3)",
@@ -381,7 +427,8 @@
         "tool": "rebar3",
         "cmd_system": "rebar3 release",
         "out_dirs": ["_build/default/rel"],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 10
     },
     {
         "name": "Haskell (Cabal)",
@@ -389,7 +436,8 @@
         "tool": "cabal",
         "cmd_system": "cabal build all",
         "out_dirs": ["dist-newstyle", "dist"],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Haskell (Stack)",
@@ -397,7 +445,8 @@
         "tool": "stack",
         "cmd_system": "stack build",
         "out_dirs": [".stack-work/dist"],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "OCaml (Dune)",
@@ -405,7 +454,8 @@
         "tool": "dune",
         "cmd_system": "opam exec -- dune build @install",
         "out_dirs": ["_build/default"],
-        "out_exts": ["", ".exe", ".cma", ".cmxa"]
+        "out_exts": ["", ".exe", ".cma", ".cmxa"],
+        "specificity": 10
     },
     {
         "name": "Dart (Flutter)",
@@ -413,7 +463,8 @@
         "tool": "flutter",
         "cmd_system": "DYNAMIC_DART_RESOLUTION",
         "out_dirs": ["build/linux/x64/release/bundle", "build/web", "build/windows/x64/runner/Release"],
-        "out_exts": ["*DIR*", ".apk", ".aab", ".exe"]
+        "out_exts": ["*DIR*", ".apk", ".aab", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Dart (pub)",
@@ -421,7 +472,8 @@
         "tool": "dart",
         "cmd_system": "dart pub get && dart compile exe bin/main.dart -o build/main",
         "out_dirs": ["build"],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Nim (nimble)",
@@ -429,7 +481,8 @@
         "tool": "nimble",
         "cmd_system": "nimble build -d:release",
         "out_dirs": ["bin", "."],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Zig",
@@ -437,7 +490,8 @@
         "tool": "zig",
         "cmd_system": "zig build -Doptimize=ReleaseFast",
         "out_dirs": ["zig-out/bin", "zig-out/lib"],
-        "out_exts": ["", ".exe", ".so", ".dll"]
+        "out_exts": ["", ".exe", ".so", ".dll"],
+        "specificity": 10
     },
     {
         "name": "D (DUB)",
@@ -445,7 +499,8 @@
         "tool": "dub",
         "cmd_system": "dub build --build=release",
         "out_dirs": [".dub/build", "bin", "."],
-        "out_exts": ["", ".exe", ".so"]
+        "out_exts": ["", ".exe", ".so"],
+        "specificity": 10
     },
     {
         "name": "Julia",
@@ -453,7 +508,8 @@
         "tool": "julia",
         "cmd_system": "julia --project=. -e 'using Pkg; Pkg.instantiate()'",
         "out_dirs": ["."],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 10
     },
     {
         "name": "R (renv / DESCRIPTION)",
@@ -461,7 +517,8 @@
         "tool": "Rscript",
         "cmd_system": "Rscript -e 'renv::restore()'",
         "out_dirs": ["renv", "."],
-        "out_exts": ["*DIR*"]
+        "out_exts": ["*DIR*"],
+        "specificity": 10
     },
     {
         "name": "Fortran (CMake / Make)",
@@ -469,7 +526,8 @@
         "tool": "gfortran",
         "cmd_system": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)",
         "out_dirs": ["build", "bin"],
-        "out_exts": ["", ".exe", ".so"]
+        "out_exts": ["", ".exe", ".so"],
+        "specificity": 3
     },
     {
         "name": "COBOL (GnuCOBOL)",
@@ -477,7 +535,8 @@
         "tool": "cobc",
         "cmd_system": "find . -name '*.cob' -o -name '*.cbl' | xargs cobc -x -o build/program",
         "out_dirs": ["build", "."],
-        "out_exts": ["", ".exe"]
+        "out_exts": ["", ".exe"],
+        "specificity": 10
     },
     {
         "name": "Lua (LuaRocks)",
@@ -485,7 +544,8 @@
         "tool": "luarocks",
         "cmd_system": "luarocks make",
         "out_dirs": ["."],
-        "out_exts": ["*DIR*", ".rock"]
+        "out_exts": ["*DIR*", ".rock"],
+        "specificity": 10
     },
     {
         "name": "Perl (CPAN / Makefile.PL)",
@@ -493,7 +553,8 @@
         "tool": "perl",
         "cmd_system": "perl Makefile.PL && make",
         "out_dirs": ["blib", "build"],
-        "out_exts": ["*DIR*", ".pm"]
+        "out_exts": ["*DIR*", ".pm"],
+        "specificity": 3
     },
     {
         "name": "WebAssembly (Emscripten)",
@@ -501,6 +562,7 @@
         "tool": "emcc",
         "cmd_system": "emmake make -j$(nproc)",
         "out_dirs": ["build", "dist", "out"],
-        "out_exts": [".wasm", ".js", ".html"]
+        "out_exts": [".wasm", ".js", ".html"],
+        "specificity": 3
     }
 ]

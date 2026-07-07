@@ -543,16 +543,22 @@ class Engine:
             if ws and root_p in ws_children:
                 continue
 
+            best = None
+            best_spec = -1
             for p in self.plugins:
                 if filter_name and p["name"] != filter_name:
                     continue
                 if any(f in files for f in p["detect"]) or any(any(f.endswith(d.replace('*', '')) for f in files) for d in p["detect"] if '*' in d):
-                    pname = p.get("tool", "") or p["name"]
-                    if _has_parent_marker(root, p["detect"]):
-                        self.stats["skipped"] += 1
-                        break
-                    self.process(Path(root), files, p)
-                    break
+                    spec = p.get("specificity", 0)
+                    if spec > best_spec:
+                        best = p
+                        best_spec = spec
+
+            if best:
+                if not _has_parent_marker(root, best["detect"]):
+                    self.process(Path(root), files, best)
+                else:
+                    self.stats["skipped"] += 1
 
         Path(self.manifest_file).write_text(json.dumps(self.manifest_data, indent=4), encoding="utf-8")
 
