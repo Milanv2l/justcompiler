@@ -505,7 +505,7 @@ class Engine:
         UI.log(UI.RED, t('act_fail'), t('compile_fail'))
         self.stats["failed"] += 1
 
-    def run(self):
+    def run(self, filter_name=""):
         t0 = time.time()
         UI.log(UI.BLUE, t('act_scan'), f"{self.src_root.resolve()}")
 
@@ -524,6 +524,8 @@ class Engine:
                 continue
 
             for p in self.plugins:
+                if filter_name and p["name"] != filter_name:
+                    continue
                 if any(f in files for f in p["detect"]) or any(any(f.endswith(d.replace('*', '')) for f in files) for d in p["detect"] if '*' in d):
                     self.process(Path(root), files, p)
                     break
@@ -543,8 +545,9 @@ if __name__ == "__main__":
     p.add_argument("--test", action="store_true")
     p.add_argument("--auto-install", action="store_true")
     p.add_argument("--lang", default="en")
+    p.add_argument("--filter", default="")
     args = p.parse_args()
 
     core.set_lang(args.lang)
-    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install).run()
+    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install).run(filter_name=args.filter)
     sys.exit(0 if ok else 1)

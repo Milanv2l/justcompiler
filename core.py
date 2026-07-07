@@ -174,6 +174,12 @@ _TRANSLATIONS = {
         "theme_default": "Default",
         "theme_minimal": "Minimal",
         
+        "build_targets_title": "Available build targets",
+        "build_targets_prompt": "Select target [1-N] or A for all: ",
+        "build_all": "Build all targets",
+        "build_selected": "Selected target: ",
+        "build_auto": "Auto-detecting build...",
+        
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
         "clone_fail": "Failed to clone remote repository.",
@@ -292,6 +298,12 @@ _TRANSLATIONS = {
         "run_prompt": "Welk artefact uitvoeren? (nummer / Enter om over te slaan):",
         "open_folder": "Uitvoermap openen? (j/n):",
         "press_enter": "Druk op Enter om terug te keren...",
+        
+        "build_targets_title": "Beschikbare build targets",
+        "build_targets_prompt": "Selecteer target [1-N] of A voor alles: ",
+        "build_all": "Alles bouwen",
+        "build_selected": "Geselecteerde target: ",
+        "build_auto": "Automatisch detecteren...",
     }
 }
 

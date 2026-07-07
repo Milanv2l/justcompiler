@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -85,6 +85,90 @@ def check_for_updates():
         _do_update(ask=True)
     except Exception:
         pass
+
+def _scan_targets(root: Path) -> list:
+    """Walk project and return detected build targets with platform/modloader info."""
+    targets = []
+    seen_plugins = set()
+    plugins_path = Path(__file__).resolve().parent / "plugins.json"
+    if not plugins_path.exists():
+        return targets
+    try:
+        plugins = json.loads(plugins_path.read_text())
+    except Exception:
+        return targets
+
+    for dirpath, dirs, _ in os.walk(str(root)):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in
+                   ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache"]]
+        files = set(os.listdir(dirpath))
+        for idx, p in enumerate(plugins):
+            pname = p["name"]
+            if pname in seen_plugins:
+                continue
+            if any(f in files for f in p["detect"]) or \
+               any(any(os.path.splitext(f)[0].endswith(d.rstrip('*').rstrip('.')) or
+                       f.endswith(d.replace('*', '')) for f in files) for d in p["detect"] if '*' in d):
+                seen_plugins.add(pname)
+                platform = _classify_platform(dirpath, pname, p.get("tool", ""))
+                targets.append({"name": pname, "plugin_idx": idx, "platform": platform,
+                                "dir": dirpath, "tool": p["tool"]})
+                break
+    return targets
+
+def _classify_platform(dirpath: str, plugin_name: str, tool: str) -> str:
+    """Detect platform/modloader from project files."""
+    d = Path(dirpath)
+    files = set(f.name for f in d.iterdir() if f.is_file())
+    upper = set(f.name for f in d.parent.iterdir() if f.is_file()) if d.parent != d else set()
+    all_files = files | upper
+
+    if "fabric.mod.json" in all_files:
+        return "Minecraft Fabric Mod"
+    if "quilt.mod.json" in all_files:
+        return "Minecraft Quilt Mod"
+    if "neoforge.mods.toml" in all_files:
+        return "Minecraft NeoForge Mod"
+    if "mods.toml" in all_files:
+        return "Minecraft Forge Mod"
+    if "plugin.yml" in all_files:
+        return "Bukkit/Paper Plugin"
+    if "bungee.yml" in all_files:
+        return "BungeeCord Plugin"
+    if "velocity-plugin.json" in all_files:
+        return "Velocity Plugin"
+    if "fxmanifest.lua" in all_files or "__resource.lua" in all_files:
+        return "FiveM/RedM Resource"
+    if "build.txt" in all_files:
+        return "tModLoader Mod"
+    if "mod.conf" in all_files:
+        return "Luanti Mod"
+    if "project.godot" in all_files:
+        return "Godot Project"
+    if any(f.endswith(".toc") for f in all_files):
+        return "WoW Addon"
+    if "AndroidManifest.xml" in all_files:
+        return "Android App"
+
+    if tool in ("pnpm", "npm", "yarn", "bun", "deno"):
+        return "Node.js App"
+    if tool == "go":
+        return "Go App"
+    if tool == "cargo" or "rust" in plugin_name.lower():
+        return "Rust App"
+    if tool in ("gradle", "mvn", "ant", "sbt"):
+        if "java" in plugin_name.lower():
+            return "Java Library"
+        if "kotlin" in plugin_name.lower():
+            return "Kotlin App"
+        return "JVM Project"
+    if "python" in tool or tool == "pip":
+        return "Python App"
+    if tool in ("flutter", "dart"):
+        return "Dart/Flutter App"
+    if tool in ("swift", "xcode"):
+        return "Swift/Xcode App"
+    return "Unknown"
 
 def _force_update(selected_lang):
     print()
@@ -502,6 +586,30 @@ if __name__ == "__main__":
             time.sleep(2)
             continue
 
+        # Scan for build targets
+        set_current_status("Scanning project...")
+        show_tui_header()
+        targets = _scan_targets(target)
+        target_filter = ""
+        if targets:
+            lines = []
+            for i, tgt in enumerate(targets, 1):
+                tag = f" [{tgt['platform']}]" if tgt['platform'] != "Unknown" else ""
+                lines.append(f" {UI.CYAN}[{i}]{UI.RESET} {tgt['name']}{tag}")
+            lines.append(f" {UI.GREEN}[A]{UI.RESET} {t('build_all')}")
+            UI.draw_panel(t('build_targets_title'), lines, color=UI.CYAN)
+            sys.stdout.flush()
+            sel = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('build_targets_prompt')}{UI.RESET}").strip().upper()
+            if sel.isdigit() and 1 <= int(sel) <= len(targets):
+                target_filter = targets[int(sel) - 1]["name"]
+                UI.log(UI.GREEN, t('build_selected'), target_filter)
+            elif sel == "A":
+                pass
+            else:
+                pass
+        else:
+            UI.log(UI.YELLOW, t('build_auto'), "")
+
         tests = load_config().get("run_tests", False)
         if tests:
             UI.info(t('test_prompt') + " " + t('settings_on'))
@@ -517,7 +625,8 @@ if __name__ == "__main__":
             run_tests=tests,
             lang=selected_lang,
             set_status_fn=set_current_status,
-            base_image=base_image
+            base_image=base_image,
+            target_filter=target_filter
         )
 
         sys.stdout.flush()

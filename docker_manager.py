@@ -53,7 +53,7 @@ def _volume_name(target_path: Path) -> str:
     h = hashlib.sha256(str(target_path.resolve()).encode()).hexdigest()[:12]
     return f"justcompiler-{h}"
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04"):
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = ""):
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -169,6 +169,8 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
         image_tag, "--lang", lang
     ]
+    if target_filter:
+        run_cmd += ["--filter", target_filter]
     if run_tests: 
         run_cmd.append("--test")
 
