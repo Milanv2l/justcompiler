@@ -1,0 +1,6 @@
+__pycache__/
+EXECUTABLE/
+_git_cache/
+config.json
+*.pyc
+.DS_Store

@@ -77,7 +77,7 @@ class Engine:
             for line in proc.stdout:
                 log.write(line)
                 log.flush()
-                if any(k in line.lower() for k in kw) and len(errors) < 6:
+                if any(k in line.lower() for k in kw) and len(errors) < 30:
                     if line.strip() and line.strip() not in errors: errors.append(line.strip())
             proc.wait()
         return proc.returncode == 0, errors
@@ -155,6 +155,16 @@ class Engine:
             return f"{install} && npm run build" if (root / "package.json").exists() else install
         elif cmd == "DYNAMIC_GO_RESOLUTION":
             return "go build -o build_output\\ ./..." if sys.platform == "win32" else "go build -o build_output/ ./..."
+        elif cmd == "DYNAMIC_PYTHON_RESOLUTION":
+            if (root / "pyproject.toml").exists():
+                return "pip3 install build && python3 -m build --outdir dist"
+            elif (root / "setup.py").exists():
+                return "python3 setup.py sdist bdist_wheel --dist-dir dist" if shutil.which("wheel") else "python3 setup.py sdist --dist-dir dist"
+            return "pip3 install -r requirements.txt && mkdir -p dist && cp -r . dist/" if (root / "requirements.txt").exists() else "python3 -m pip install --upgrade pip && pip3 install build && python3 -m build --outdir dist"
+        elif cmd == "DYNAMIC_DART_RESOLUTION":
+            if shutil.which("flutter"):
+                return "flutter build linux --release" if (root / "linux").exists() else "flutter build web --release"
+            return "dart pub get && dart compile exe bin/main.dart -o build/main 2>/dev/null || dart compile kernel bin/main.dart -o build/main.dill"
         elif cmd == "DYNAMIC_CPP_RESOLUTION":
             if sys.platform == "win32":
                 return "if not exist build mkdir build && cd build && cmake .. && cmake --build . --config Release"
@@ -163,11 +173,9 @@ class Engine:
         return cmd
 
     def parse_and_rescue(self, errors) -> bool:
-        """De Magische Hybride Error Parser (Vangnet voor ontbrekende systeem libraries)"""
         if not self.dep_mgr.in_docker:
-            return False # Pas deze magie alleen toe in de Docker Sandbox
+            return False
 
-        # De Fast-Lane: Onze ingebouwde Top 10 beruchte C/C++ libraries
         RESCUE_DICTIONARY = {
             "openssl/ssl.h": "libssl-dev",
             "curl/curl.h": "libcurl4-openssl-dev",
@@ -178,41 +186,141 @@ class Engine:
             "X11/Xlib.h": "libx11-dev",
             "GL/glew.h": "libglew-dev",
             "png.h": "libpng-dev",
-            "jpeglib.h": "libjpeg-dev"
+            "jpeglib.h": "libjpeg-dev",
+            "gtk/gtk.h": "libgtk-3-dev",
+            "gtk-3.0/gtk.h": "libgtk-3-dev",
+            "webkit2/webkit2.h": "libwebkit2gtk-4.1-dev",
+            "libsoup/soup.h": "libsoup-3.0-dev",
+            "pango/pango.h": "libpango1.0-dev",
+            "cairo/cairo.h": "libcairo2-dev",
+            "atk/atk.h": "libatk1.0-dev",
+            "gdk-pixbuf/gdk-pixbuf.h": "libgdk-pixbuf-xlib-2.0-dev",
+            "X11/Xlib.h": "libx11-dev",
+            "X11/Xatom.h": "libx11-dev",
+            "X11/extensions/Xrandr.h": "libxrandr-dev",
+            "X11/extensions/Xinerama.h": "libxinerama-dev",
+            "X11/Xcursor/Xcursor.h": "libxcursor-dev",
+            "X11/extensions/XInput.h": "libxi-dev",
+            "X11/extensions/XTest.h": "libxtst-dev",
+            "X11/Intrinsic.h": "libxt-dev",
+            "X11/Xft/Xft.h": "libxft-dev",
+            "alsa/asoundlib.h": "libasound2-dev",
+            "pulse/pulseaudio.h": "libpulse-dev",
+            "jack/jack.h": "libjack-dev",
+            "freetype/freetype.h": "libfreetype6-dev",
+            "fontconfig/fontconfig.h": "libfontconfig1-dev",
+            "harfbuzz/hb.h": "libharfbuzz-dev",
+            "libusb-1.0/libusb.h": "libusb-1.0-0-dev",
+            "libinput.h": "libinput-dev",
+            "wayland-client.h": "libwayland-dev",
+            "EGL/egl.h": "libegl1-mesa-dev",
+            "GLES3/gl3.h": "libgles2-mesa-dev",
+            "Python.h": "python3-dev",
+            "lua.h": "liblua5.4-dev",
+            "tcl.h": "tcl-dev",
+            "tk.h": "tk-dev",
+            "ncurses.h": "libncurses-dev",
+            "readline/readline.h": "libreadline-dev",
+            "zstd.h": "libzstd-dev",
         }
 
         for err in errors:
-            # Detecteer missende Header-bestanden (fatal error: lib.h: No such file)
             match_header = re.search(r'(?:fatal )?error: ([a-zA-Z0-9_/\.\-]+): No such file', err)
-            # Detecteer missende dynamische bibliotheken via de linker (cannot find -lcurl)
             match_lib = re.search(r'cannot find -l([a-zA-Z0-9_]+)', err)
-            
-            missing_item = None
-            if match_header: missing_item = match_header.group(1)
-            elif match_lib: missing_item = f"lib{match_lib.group(1)}.so"
+            match_pkg_config = re.search(r'Package\s+([a-zA-Z0-9_\-]+)\s+was\s+not\s+found', err)
 
-            if missing_item:
-                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing dependency detected: {missing_item}")
-                
-                # STAP 1: Gebruik de snelle dictionary
-                if missing_item in RESCUE_DICTIONARY:
-                    pkg = RESCUE_DICTIONARY[missing_item]
-                    UI.log(UI.CYAN, "AI-RESCUE   ", f"Installing known package: {pkg}")
-                    return self.dep_mgr.trigger_install(pkg)
-                
-                # STAP 2: De apt-file database fallback
-                UI.log(UI.CYAN, "AI-RESCUE   ", f"Searching Ubuntu database for {missing_item}...")
+            missing_item = None
+            rescue_type = "apt"
+            if match_header:
+                missing_item = match_header.group(1)
+            elif match_lib:
+                missing_item = f"lib{match_lib.group(1)}.so"
+            elif match_pkg_config:
+                missing_item = match_pkg_config.group(1)
+
+            if missing_item and rescue_type == "apt":
+                if self._rescue_apt(missing_item, RESCUE_DICTIONARY):
+                    return True
+                continue
+
+            py_match = re.search(r"(?:ModuleNotFoundError|ImportError):\s*(?:No module named\s+)?['\"]?(\w+(?:\.\w+)*)['\"]?", err)
+            if py_match:
+                pkg = py_match.group(1).split('.')[0]
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing Python module: {pkg}")
+                if self.dep_mgr.pip_install(pkg):
+                    UI.log(UI.GREEN, "AI-RESCUE   ", f"Installed Python package: {pkg}")
+                    return True
+                continue
+
+            node_match = re.search(r"Error:\s+Cannot find module ['\"]([^'\"]+)['\"]", err)
+            if not node_match:
+                node_match = re.search(r"MODULE_NOT_FOUND.*['\"]?([a-zA-Z0-9_\-@/]+)['\"]?", err)
+            if node_match:
+                pkg = node_match.group(1).split('/')[0]
+                if pkg.startswith('@'):
+                    pkg = node_match.group(1).split('/')[0] + '/' + node_match.group(1).split('/')[1]
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing Node.js module: {pkg}")
+                if self.dep_mgr.npm_install(pkg):
+                    UI.log(UI.GREEN, "AI-RESCUE   ", f"Installed Node.js package: {pkg}")
+                    return True
+                continue
+
+            ruby_match = re.search(r"cannot load such file -- (\S+)", err)
+            if ruby_match:
+                pkg = ruby_match.group(1).split('/')[0]
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing Ruby library: {pkg}")
+                if self.dep_mgr.gem_install(pkg):
+                    UI.log(UI.GREEN, "AI-RESCUE   ", f"Installed Ruby gem: {pkg}")
+                    return True
+                continue
+
+            go_match = re.search(r"package\s+([a-zA-Z0-9_\-/]+)\s+is\s+not\s+in\s+GOROOT", err)
+            if go_match:
+                pkg = go_match.group(1).split('/')[0]
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing Go package: {pkg}")
                 try:
-                    res = subprocess.run(["apt-file", "search", missing_item], capture_output=True, text=True, timeout=10)
-                    if res.returncode == 0 and res.stdout:
-                        # Haal alleen '-dev' pakketten op (want we zijn aan het compileren)
-                        lines = [line for line in res.stdout.split('\n') if line and '-dev' in line.split(':')[0]]
-                        if lines:
-                            pkg = lines[0].split(':')[0].strip()
-                            UI.log(UI.CYAN, "AI-RESCUE   ", f"Found matching package: {pkg}")
-                            return self.dep_mgr.trigger_install(pkg)
+                    subprocess.run(["go", "get", pkg], capture_output=True, text=True, timeout=30)
+                    UI.log(UI.GREEN, "AI-RESCUE   ", f"Fetched Go package: {pkg}")
+                    return True
                 except Exception:
                     pass
+                continue
+
+            rust_match = re.search(r"can't find crate for ['\`]([a-zA-Z0-9_\-]+)['\`]", err)
+            if rust_match:
+                pkg = rust_match.group(1)
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing Rust crate dependency: {pkg}")
+                try:
+                    subprocess.run(["cargo", "install", pkg], capture_output=True, text=True, timeout=60)
+                    UI.log(UI.GREEN, "AI-RESCUE   ", f"Fetched Rust crate: {pkg}")
+                    return True
+                except Exception:
+                    pass
+                continue
+
+        return False
+
+    def _rescue_apt(self, missing_item, rescue_dict):
+        UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing dependency detected: {missing_item}")
+
+        if missing_item in rescue_dict:
+            pkg = rescue_dict[missing_item]
+            UI.log(UI.CYAN, "AI-RESCUE   ", f"Installing known package: {pkg}")
+            return self.dep_mgr.trigger_install(pkg)
+
+        UI.log(UI.CYAN, "AI-RESCUE   ", f"Searching Ubuntu database for {missing_item}...")
+        try:
+            res = subprocess.run(["apt-file", "search", missing_item], capture_output=True, text=True, timeout=10)
+            if res.returncode == 0 and res.stdout:
+                lines = [line for line in res.stdout.split('\n') if line and '-dev' in line.split(':')[0]]
+                if not lines:
+                    lines = [line for line in res.stdout.split('\n') if line]
+                if lines:
+                    pkg = lines[0].split(':')[0].strip()
+                    UI.log(UI.CYAN, "AI-RESCUE   ", f"Found matching package: {pkg}")
+                    return self.dep_mgr.trigger_install(pkg)
+        except Exception:
+            pass
         return False
 
     def process(self, root, files, plugin):
@@ -237,7 +345,9 @@ class Engine:
                 UI.log(UI.GREEN, t('act_verify'), t('test_success'))
 
         t0 = time.time()
-        for attempt in range(1, 4):
+        attempt = 0
+        while attempt < 3:
+            attempt += 1
             cmd = self.build_cmd(root, plugin, attempt)
             UI.log(UI.CYAN, t('act_build'), f"Strategy {attempt}/3...")
             ok, errs = self.run_cmd(cmd, root)
@@ -250,11 +360,11 @@ class Engine:
                     self.stats["success"] += 1
                     return
             else:
-                # --- DE AI-RESCUE HOOK ---
                 if self.parse_and_rescue(errs):
                     UI.log(UI.GREEN, "AI-RESCUE   ", "Dependency installed successfully! Retrying build...")
-                    continue # Start dezelfde Strategy iteratie opnieuw!
-                
+                    attempt -= 1
+                    continue
+
                 if errs:
                     print(f"   {UI.YELLOW}{t('err_output_title')}{UI.RESET}")
                     for e in errs: print(f"     {UI.RED}➔ {e}{UI.RESET}")
@@ -276,8 +386,9 @@ class Engine:
 
         Path(self.manifest_file).write_text(json.dumps(self.manifest_data, indent=4), encoding="utf-8")
 
-        print(f"\n{UI.HEADER}{UI.BOLD}{t('report_header')}{UI.RESET}")
-        print(t('report_status', green=UI.GREEN, success=self.stats['success'], red=UI.RED, failed=self.stats['failed'], yellow=UI.YELLOW, skipped=self.stats['skipped'], reset=UI.RESET, time=round(time.time() - t0, 1)))
+        elapsed = round(time.time() - t0, 1)
+        report_line = t('report_status', green=UI.GREEN, success=self.stats['success'], red=UI.RED, failed=self.stats['failed'], yellow=UI.YELLOW, skipped=self.stats['skipped'], reset=UI.RESET, time=elapsed)
+        UI.draw_panel(t('report_header'), [report_line], color=UI.CYAN)
         self.dep_mgr.cleanup()
 
 if __name__ == "__main__":

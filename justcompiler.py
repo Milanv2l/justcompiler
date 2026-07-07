@@ -5,6 +5,8 @@ import shutil
 import platform
 import urllib.request
 import time
+import json
+import hashlib
 from pathlib import Path
 import core
 from core import UI, t
@@ -12,6 +14,54 @@ import docker_manager
 
 VERSION = "1.1.9"
 CURRENT_STATUS = "Standby"
+CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
+UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
+
+def verify_checksum(file_path, expected_hash):
+    sha256 = hashlib.sha256()
+    try:
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest() == expected_hash
+    except Exception:
+        return False
+
+def load_checksums(file_path):
+    try:
+        sums = {}
+        for line in Path(file_path).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                sums[parts[1].lstrip("*")] = parts[0]
+        return sums
+    except Exception:
+        return {}
+
+def load_config():
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    default = {"check_updates": True, "base_image": "ubuntu:24.04", "theme": "default"}
+    try:
+        CONFIG_FILE.write_text(json.dumps(default, indent=4), encoding="utf-8")
+    except Exception:
+        pass
+    return default
+
+def save_config(**updates):
+    config = load_config()
+    config.update(updates)
+    try:
+        CONFIG_FILE.write_text(json.dumps(config, indent=4), encoding="utf-8")
+    except Exception:
+        pass
+    return config
 
 def set_current_status(msg: str):
     global CURRENT_STATUS
@@ -27,6 +77,9 @@ def init_terminal_colors():
             pass
 
 def check_for_updates():
+    config = load_config()
+    if not config.get("check_updates", True):
+        return
     global CURRENT_STATUS
     set_current_status("Checking updates...")
     current_dir = Path(__file__).resolve().parent
@@ -34,14 +87,49 @@ def check_for_updates():
     try:
         with urllib.request.urlopen(version_url, timeout=1.5) as response:
             remote_version = response.read().decode('utf-8').strip()
-        if remote_version != VERSION:
-            files = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json"]
-            for file_name in files:
-                file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main/{file_name}"
-                with urllib.request.urlopen(file_url, timeout=5) as file_response:
-                    (current_dir / file_name).write_bytes(file_response.read())
+        if remote_version == VERSION:
+            return
+        print(f"{UI.YELLOW}[INFO] New version {remote_version} available (current: {VERSION}){UI.RESET}")
+        confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()
+        if confirm not in ['j', 'ja', 'y', 'yes']:
+            return
+        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
+        set_current_status(f"Downloading v{remote_version}...")
+        temp_dir = current_dir / f".update_{remote_version}"
+        temp_dir.mkdir(exist_ok=True)
+        try:
+            for file_name in UPDATE_FILES:
+                file_url = f"{base_url}/{file_name}"
+                try:
+                    with urllib.request.urlopen(file_url, timeout=5) as file_response:
+                        (temp_dir / file_name).write_bytes(file_response.read())
+                except Exception:
+                    file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main/{file_name}"
+                    with urllib.request.urlopen(file_url, timeout=5) as file_response:
+                        (temp_dir / file_name).write_bytes(file_response.read())
+            checksums = load_checksums(temp_dir / "checksums.txt")
+            if checksums:
+                all_ok = True
+                for fname in UPDATE_FILES:
+                    if fname == "checksums.txt":
+                        continue
+                    if fname in checksums and not verify_checksum(temp_dir / fname, checksums[fname]):
+                        UI.warn(f"Checksum mismatch: {fname}")
+                        all_ok = False
+                if not all_ok:
+                    print(f"{UI.RED}[ERR] Checksum verification failed. Update aborted.{UI.RESET}")
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    return
+            for file_name in UPDATE_FILES:
+                src = temp_dir / file_name
+                if src.exists():
+                    shutil.copy2(src, current_dir / file_name)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             print(f"{UI.GREEN}[OK] JustCompiler updated to {remote_version}! Please restart.{UI.RESET}")
             sys.exit(0)
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
     except Exception:
         pass
 
@@ -49,27 +137,37 @@ def show_tui_header():
     UI.clear()
     system_str = f"{platform.system()} ({platform.machine()})"
     docker_status = f"{UI.GREEN}Available{UI.RESET}" if shutil.which("docker") else f"{UI.RED}Missing{UI.RESET}"
-    
     lines = [
         f"{UI.BOLD}Version:{UI.RESET} {VERSION}  │  {UI.BOLD}System:{UI.RESET} {system_str}",
-        f"{UI.BOLD}Docker Environment:{UI.RESET} {docker_status}  │  {UI.BOLD}Status:{UI.RESET} {UI.YELLOW}{CURRENT_STATUS}{UI.RESET}",
-        f"{UI.DIM}─────────────────────────────────────────────────────────────────────────{UI.RESET}",
-        f"JustCompiler is running in secure container sandbox mode."
+        f"{UI.BOLD}Docker:{UI.RESET} {docker_status}  │  {UI.BOLD}Status:{UI.RESET} {UI.YELLOW}{CURRENT_STATUS}{UI.RESET}",
     ]
-    
-    if hasattr(UI, 'draw_panel'):
-        UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
+    UI.draw_panel("JustCompiler Hub", lines, color=UI.MAGENTA)
+
+def _remove_alias():
+    profile_files = []
+    if platform.system() == "Windows":
+        profile = os.environ.get("PROFILE", "")
+        if profile:
+            profile_files.append(Path(profile))
     else:
-        print(f"\n=== JustCompiler Hub ===")
-        for line in lines: print(line)
-    
-    sys.stdout.flush()
+        for f in [Path.home() / ".bashrc", Path.home() / ".zshrc", Path.home() / ".bash_profile"]:
+            if f.exists():
+                profile_files.append(f)
+    for pf in profile_files:
+        try:
+            lines = pf.read_text(encoding="utf-8").splitlines(keepends=True)
+            filtered = [l for l in lines if "justcompiler" not in l or "alias" not in l]
+            if len(filtered) != len(lines):
+                pf.write_text("".join(filtered), encoding="utf-8")
+        except Exception:
+            pass
 
 def handle_uninstall():
     print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
-    confirm = input("Are you sure you want to uninstall JustCompiler? (y/n): ").strip().lower()
+    confirm = input(f"{UI.CYAN}{UI.BOLD}Are you sure you want to uninstall JustCompiler? (y/n): {UI.RESET}").strip().lower()
     if confirm not in ['j', 'ja', 'y', 'yes']:
         sys.exit(0)
+    _remove_alias()
     install_dir = Path.home() / ".justcompiler"
     if shutil.which("docker"):
         docker_cmd = ["docker"] if platform.system() == "Windows" else ["sudo", "docker"]
@@ -147,7 +245,7 @@ def handle_remote_git(url: str) -> Path:
         
         try:
             sys.stdout.flush()
-            choice_input = input(f"\n{UI.BOLD}➔ Select branch [1-{max_choice}]: {UI.RESET}").strip()
+            choice_input = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Select branch [1-{max_choice}]: {UI.RESET}").strip()
             if choice_input.isdigit():
                 choice_idx = int(choice_input)
                 if choice_idx == 1:
@@ -183,22 +281,76 @@ def handle_remote_git(url: str) -> Path:
         
     return cache_dir
 
+def handle_settings(selected_lang):
+    while True:
+        show_tui_header()
+        config = load_config()
+        lang_name = "English" if selected_lang == "en" else "Nederlands"
+        updates_status = t("settings_on") if config.get("check_updates", True) else t("settings_off")
+        current_theme = config.get("theme", "default")
+        theme_name = t("theme_default") if current_theme == "default" else t("theme_minimal")
+        lines = [
+            f" {t('settings_lang', lang=lang_name)}",
+            f" {t('settings_updates', status=updates_status)}",
+            f" {t('settings_theme', theme=theme_name)}",
+            f" {t('settings_back')}"
+        ]
+        UI.draw_panel(t('settings_title'), lines, color=UI.YELLOW)
+        sys.stdout.flush()
+        s = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('settings_prompt')}{UI.RESET}").strip()
+        if s == "1":
+            print(f"\n{UI.CYAN}Language / Taal:{UI.RESET}")
+            print("  [1] English")
+            print("  [2] Nederlands")
+            sys.stdout.flush()
+            c = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Choice / Keuze [1-2]: {UI.RESET}").strip()
+            new_lang = "nl" if c == "2" else "en"
+            core.set_lang(new_lang)
+            save_config(lang=new_lang)
+            selected_lang = new_lang
+        elif s == "2":
+            new_val = not config.get("check_updates", True)
+            save_config(check_updates=new_val)
+        elif s == "3":
+            new_theme = "minimal" if current_theme == "default" else "default"
+            save_config(theme=new_theme)
+            UI.border_enabled = new_theme != "minimal"
+        else:
+            return selected_lang
+
 if __name__ == "__main__":
     init_terminal_colors()
 
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "uninstall":
-        handle_uninstall()
+    if len(sys.argv) > 1:
+        if sys.argv[1].lower() == "uninstall":
+            handle_uninstall()
+        if sys.argv[1].lower() in ("--version", "-v"):
+            print(f"JustCompiler v{VERSION}")
+            sys.exit(0)
 
-    UI.clear()
-    print(f"{UI.CYAN}Select interface language / Kies taal:{UI.RESET}")
-    print("  [1] English (Default)")
-    print("  [2] Nederlands")
-    
-    sys.stdout.flush()
-    lang_choice = input("\nChoice / Keuze [1-2]: ").strip()
-    selected_lang = "nl" if lang_choice == "2" else "en"
+    config = load_config()
+    UI.border_enabled = config.get("theme", "default") != "minimal"
+    selected_lang = "en"
+
+    for i, arg in enumerate(sys.argv):
+        if arg in ("--lang", "-l") and i + 1 < len(sys.argv):
+            selected_lang = sys.argv[i + 1] if sys.argv[i + 1] in ("en", "nl") else "en"
+            save_config(lang=selected_lang)
+            break
+    else:
+        if "lang" in config:
+            selected_lang = config["lang"]
+        else:
+            UI.clear()
+            print(f"{UI.CYAN}Select interface language / Kies taal:{UI.RESET}")
+            print("  [1] English (Default)")
+            print("  [2] Nederlands")
+            sys.stdout.flush()
+            lang_choice = input(f"\n{UI.CYAN}{UI.BOLD}Choice / Keuze [1-2]: {UI.RESET}").strip()
+            selected_lang = "nl" if lang_choice == "2" else "en"
+            save_config(lang=selected_lang)
+
     core.set_lang(selected_lang)
-
     show_tui_header()
     check_for_updates()
 
@@ -208,36 +360,31 @@ if __name__ == "__main__":
     while True:
         set_current_status("Awaiting instructions")
         show_tui_header()
-        
+
         menu_items = [
             f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
             f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
-            f"{UI.RED} {t('menu_3')}{UI.RESET}"
+            f"{UI.YELLOW} {t('menu_3')}{UI.RESET}",
+            f"{UI.RED} {t('menu_4')}{UI.RESET}"
         ]
-        
-        if hasattr(UI, 'draw_panel'):
-            UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
-        else:
-            print(f"=== {t('title')} ===")
-            for mi in menu_items: print(mi)
-        
+
+        UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
         sys.stdout.flush()
-        choice = input(f"\n{UI.BOLD}➔ {t('choice_prompt')}{UI.RESET}").strip()
+        choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('choice_prompt')}{UI.RESET}").strip()
         target = None
 
         if choice == "1":
-            set_current_status("Waiting for local path")
-            show_tui_header()
-            sys.stdout.flush()
-            path_input = input(f"{UI.BOLD}➔ {t('path_prompt')}{UI.RESET}").strip()
+            UI.info(t('path_prompt'))
+            path_input = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
             target = Path(path_input) if path_input else Path(".")
         elif choice == "2":
-            set_current_status("Waiting for Git URL")
-            show_tui_header()
-            sys.stdout.flush()
-            url = input(f"{UI.BOLD}➔ {t('git_prompt')}{UI.RESET}").strip()
-            if url: 
+            UI.info(t('git_prompt'))
+            url = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
+            if url:
                 target = handle_remote_git(url)
+        elif choice == "3":
+            selected_lang = handle_settings(selected_lang)
+            continue
         else:
             UI.clear()
             sys.exit(0)
@@ -247,30 +394,19 @@ if __name__ == "__main__":
             time.sleep(2)
             continue
 
-        set_current_status("Checking configuration")
-        show_tui_header()
-        sys.stdout.flush()
-        tests = input(f"{UI.BOLD}➔ {t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
+        tests = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
         version_to_use = VERSION
         local_tags = docker_manager.detect_local_versions()
 
         if local_tags:
-            set_current_status("Awaiting version selection")
-            show_tui_header()
             version_lines = [f" [1] 🌟 Default / Standaard ({VERSION}) [Aanbevolen]"]
             for idx, tag in enumerate(local_tags, start=2):
                 version_lines.append(f" [{idx}] 📦 Hergebruik containerversie: {tag}")
-            
-            if hasattr(UI, 'draw_panel'):
-                UI.draw_panel(t('docker_version_detected_title'), version_lines, color=UI.CYAN)
-            else:
-                print(f"=== {t('docker_version_detected_title')} ===")
-                for vl in version_lines: print(vl)
-                
-            sys.stdout.flush()
-            v_choice = input(f"\n{UI.BOLD}➔ {t('docker_version_detected_prompt')}{UI.RESET}").strip()
-            
+
+            UI.draw_panel(t('docker_version_detected_title'), version_lines, color=UI.CYAN)
+            v_choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('docker_version_detected_prompt')}{UI.RESET}").strip()
+
             if v_choice.isdigit():
                 v_idx = int(v_choice)
                 if v_idx == 1:
@@ -278,18 +414,17 @@ if __name__ == "__main__":
                 elif 2 <= v_idx <= len(local_tags) + 1:
                     version_to_use = local_tags[v_idx - 2]
 
-        set_current_status("Preparing Sandbox...")
-        show_tui_header()
-        
+        base_image = load_config().get("base_image", "ubuntu:24.04")
         docker_manager.bootstrap_sandbox(
-            target_path=target, 
-            artifacts_path=artifacts_folder, 
-            run_tests=tests, 
+            target_path=target,
+            artifacts_path=artifacts_folder,
+            run_tests=tests,
             lang=selected_lang,
             set_status_fn=set_current_status,
             version_to_use=version_to_use,
-            current_version=VERSION
+            current_version=VERSION,
+            base_image=base_image
         )
-            
+
         sys.stdout.flush()
-        input(f"\n{UI.DIM}Press Enter to return to dashboard...{UI.RESET}")
+        input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{UI.DIM}Press Enter to return to dashboard...{UI.RESET}")

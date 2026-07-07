@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import platform
 import json
+import time
 from pathlib import Path
 from core import UI, t
 
@@ -29,7 +30,7 @@ def detect_local_versions():
         pass
     return []
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, version_to_use: str, current_version: str):
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, version_to_use: str, current_version: str, base_image: str = "ubuntu:24.04"):
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -65,7 +66,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
             set_status_fn(t('docker_building_base'))
             print(f"{UI.CYAN}➔ Basisomgeving niet gevonden. Eenmalig downloaden en opbouwen van alle compilers...{UI.RESET}")
             
-            base_dockerfile_content = """FROM ubuntu:26.04
+            base_dockerfile_content = f"""FROM {base_image}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
     curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
@@ -149,17 +150,20 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
 
     try:
         set_status_fn(t('docker_compiling_status'))
-        UI.info("Executing isolated pipeline. Real-time compilation streams:")
+        t0 = time.time()
+        UI.info("━━━ Build Pipeline ─── " + t('docker_compiling_status'))
         print(f"{UI.DIM}─" * 75 + f"{UI.RESET}")
         result = subprocess.run(run_cmd)
+        elapsed = time.time() - t0
         print(f"{UI.DIM}─" * 75 + f"{UI.RESET}")
-            
+        print(f"{UI.DIM}Build completed in {elapsed:.1f}s{UI.RESET}")
+
         if result.returncode != 0:
             set_status_fn(t('docker_failed_status'))
-            UI.error("Compilation failed. Inspect structural constraints above.")
+            UI.error(t('docker_failed_status'))
         else:
             set_status_fn(t('docker_success_status'))
-            UI.success("Compilation lifecycle completed successfully.")
+            UI.success(t('docker_success_status'))
             
             artifacts_path.mkdir(exist_ok=True)
             subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

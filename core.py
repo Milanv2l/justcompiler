@@ -59,6 +59,7 @@ class UI:
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
+    border_enabled = True
 
     @classmethod
     def log(cls, color, prefix, msg):
@@ -71,22 +72,42 @@ class UI:
         sys.stdout.flush()
 
     @staticmethod
-    def draw_panel(title: str, lines: list, width: int = 75, color: str = CYAN):
-        """Draws a clean, modern TUI panel with Unicode borders and padding."""
+    def draw_panel(title: str, lines: list, width: int = 0, color: str = CYAN):
         ansi_escape = re.compile(r'\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])')
-        
-        title_text = f" {UI.BOLD}{title}{UI.RESET}{color} "
+        term_width = shutil.get_terminal_size().columns if hasattr(shutil, 'get_terminal_size') else 80
+        width = width if width > 0 else max(60, term_width - 2)
+        dim = UI.DIM
+        rst = UI.RESET
+
+        if not UI.border_enabled:
+            print(f"{color}━━━ {UI.BOLD}{title}{rst}")
+            for line in lines:
+                plain = ansi_escape.sub('', line)
+                print(f"  {line}{rst}")
+            print()
+            return
+
+        title_text = f" {UI.BOLD}{title}{rst}{color} "
         plain_title = ansi_escape.sub('', title_text)
-        top_line = f"{color}┌─{title_text}" + "─" * (width - len(plain_title) - 4) + f"┐{UI.RESET}"
+        inner_w = width - 4
+        top_line = f"{dim}┌─{rst}{color}{title_text}{dim}" + "─" * (width - len(plain_title) - 3) + f"┐{rst}"
         print(top_line)
-        
+
         for line in lines:
             plain_line = ansi_escape.sub('', line)
-            padding = width - len(plain_line) - 4
-            if padding < 0: padding = 0
-            print(f"{color}│{UI.RESET}  {line}" + " " * padding + f" {color}│{UI.RESET}")
-            
-        print(f"{color}└" + "─" * (width - 2) + f"┘{UI.RESET}")
+            pad = inner_w - len(plain_line)
+            if pad < 0: pad = 0
+            print(f"{dim}│{rst}  {line}" + " " * pad + f" {dim}│{rst}")
+
+        print(f"{dim}└" + "─" * (width - 2) + f"┘{rst}")
+
+    @staticmethod
+    def rule(color: str = CYAN):
+        if not UI.border_enabled:
+            return
+        w = shutil.get_terminal_size().columns - 2 if hasattr(shutil, 'get_terminal_size') else 78
+        w = max(40, w)
+        print(f"{UI.DIM}└" + "─" * w + f"┘{UI.RESET}")
 
     @staticmethod
     def info(msg: str):
@@ -117,13 +138,24 @@ _TRANSLATIONS = {
         "title": "JustCompiler Engine Dashboard",
         "menu_1": "1. Compile local workspace",
         "menu_2": "2. Compile remote Git repository",
-        "menu_3": "3. Exit Application",
-        "choice_prompt": "Select an option [1-3]: ",
+        "menu_3": "3. Settings",
+        "menu_4": "4. Exit",
+        "choice_prompt": "Select an option [1-4]: ",
         "path_prompt": "Workspace path (Leave empty for current dir): ",
         "git_prompt": "Remote Git URL (HTTPS) [use url#branch]: ",
         "test_prompt": "Run automated test suites? (y/n): ",
         "docker_version_detected_title": "Detected Local Sandbox Container Environments",
         "docker_version_detected_prompt": "Select which sandbox version to deploy [1-X, Default=1]: ",
+        "settings_title": "Settings",
+        "settings_lang": "1. Language: {lang}",
+        "settings_updates": "2. Auto-updates: {status}",
+        "settings_theme": "3. Theme: {theme}",
+        "settings_back": "4. Back to dashboard",
+        "settings_prompt": "Select an option [1-4]: ",
+        "settings_on": "ON",
+        "settings_off": "OFF",
+        "theme_default": "Default",
+        "theme_minimal": "Minimal",
         
         "err_dir": "Invalid target path or directory does not exist.",
         "cloning": "Cloning repository into temporary workspace...",
@@ -164,18 +196,31 @@ _TRANSLATIONS = {
         "test_fail_abort": "Tests failed. Aborting build for {name}.",
         "test_success": "All tests passed successfully.",
         "compile_fail": "Compilation failed completely.",
+        "report_header": "=== BUILD REPORT ===",
+        "report_status": "{green}{success} Passed{reset} | {red}{failed} Failed{reset} | {yellow}{skipped} Skipped{reset} ({time}s)",
     },
     "nl": {
         "title": "JustCompiler Engine Dashboard",
         "menu_1": "1. Lokale workspace compileren",
         "menu_2": "2. Externe Git repository compileren",
-        "menu_3": "3. Applicatie Afsluiten",
-        "choice_prompt": "Selecteer een optie [1-3]: ",
+        "menu_3": "3. Instellingen",
+        "menu_4": "4. Afsluiten",
+        "choice_prompt": "Selecteer een optie [1-4]: ",
         "path_prompt": "Workspace pad (Leeg laten voor huidige map): ",
         "git_prompt": "Externe Git URL (HTTPS) [gebruik url#branch]: ",
         "test_prompt": "Automatische testsuites uitvoeren? (j/n): ",
         "docker_version_detected_title": "Gedetecteerde Lokale Sandbox Containeromgevingen",
         "docker_version_detected_prompt": "Selecteer welke sandbox-versie je wilt gebruiken [1-X, Standaard=1]: ",
+        "settings_title": "Instellingen",
+        "settings_lang": "1. Taal: {lang}",
+        "settings_updates": "2. Auto-updates: {status}",
+        "settings_theme": "3. Thema: {theme}",
+        "settings_back": "4. Terug naar dashboard",
+        "settings_prompt": "Selecteer een optie [1-4]: ",
+        "settings_on": "AAN",
+        "settings_off": "UIT",
+        "theme_default": "Standaard",
+        "theme_minimal": "Minimaal",
         
         "err_dir": "Ongeldig doelpad of map bestaat niet.",
         "cloning": "Repository klonen naar tijdelijke workspace...",
@@ -216,6 +261,8 @@ _TRANSLATIONS = {
         "test_fail_abort": "Tests mislukt. Build afgebroken voor {name}.",
         "test_success": "Alle tests succesvol doorstaan.",
         "compile_fail": "Compilatie volledig mislukt.",
+        "report_header": "=== BUILD RAPPORT ===",
+        "report_status": "{green}{success} Geslaagd{reset} | {red}{failed} Mislukt{reset} | {yellow}{skipped} Overgeslagen{reset} ({time}s)",
     }
 }
 
@@ -237,6 +284,7 @@ class DependencyManager:
     def __init__(self, auto_install: bool = True):
         self.auto_install = auto_install
         self.in_docker = Path('/.dockerenv').exists()
+        self._apt_updated = False
 
     def inspect_version(self, root: Path, tool: str) -> str:
         if not shutil.which(tool):
@@ -255,6 +303,11 @@ class DependencyManager:
         if shutil.which("brew"): return "brew"
         return "unknown"
 
+    def _apt_update(self):
+        if not self._apt_updated:
+            subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._apt_updated = True
+
     def trigger_install(self, tool: str) -> bool:
         if not self.auto_install: return False
         pkg_mgr = self.get_pkg_manager()
@@ -265,11 +318,35 @@ class DependencyManager:
 
         if pkg_mgr == "apt" and os.geteuid() == 0:
             with UI.spinner(t("installing", tool=pkg)) as spinner:
-                subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._apt_update()
                 res = subprocess.run(["apt-get", "install", "-y", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if res.returncode != 0: spinner.fail()
                 return res.returncode == 0
         return False
+
+    def pip_install(self, package: str) -> bool:
+        if not self.auto_install: return False
+        try:
+            res = subprocess.run(["pip3", "install", package], capture_output=True, text=True, timeout=60)
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def npm_install(self, package: str) -> bool:
+        if not self.auto_install: return False
+        try:
+            res = subprocess.run(["npm", "install", "-g", package], capture_output=True, text=True, timeout=60)
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def gem_install(self, package: str) -> bool:
+        if not self.auto_install: return False
+        try:
+            res = subprocess.run(["gem", "install", package], capture_output=True, text=True, timeout=60)
+            return res.returncode == 0
+        except Exception:
+            return False
 
     def cleanup(self): pass
 
