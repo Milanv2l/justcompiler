@@ -6,8 +6,32 @@ import platform
 import json
 import time
 import hashlib
+import re
+import threading
 from pathlib import Path
 from core import UI, t
+
+def _build_with_spinner(title, cmd_args):
+    """Run a docker build with a progress spinner showing step info."""
+    spinner = UI.spinner(title)
+    with spinner:
+        proc = subprocess.Popen(
+            cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1
+        )
+        total_steps = 0
+        for line in proc.stdout:
+            m = re.search(r"\[(\d+)/(\d+)\]", line)
+            if m:
+                step, total_steps = int(m.group(1)), int(m.group(2))
+                pct = step / total_steps * 100
+                spinner.set_progress(pct)
+            elif "ERROR" in line or "failed" in line.lower():
+                spinner.fail()
+        proc.wait()
+        if proc.returncode != 0:
+            spinner.fail()
+    return proc.returncode == 0
 
 def get_docker_cmd():
     docker_cmd = ["docker"]
@@ -82,9 +106,7 @@ RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
             base_dockerfile_path = host_dir / "Dockerfile.base"
             try:
                 base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
-                print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}")
-                subprocess.run(docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", "justcompiler-base:latest", str(host_dir)])
-                print(f"{UI.DIM}" + "─" * 75 + f"{UI.RESET}\n")
+                _build_with_spinner(t('docker_building_base'), docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", "justcompiler-base:latest", str(host_dir)])
             finally:
                 if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
         else:
@@ -118,7 +140,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
             dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
             
             print(f"{UI.CYAN}➔ Synchroniseren van de script-updates in de sandbox...{UI.RESET}")
-            subprocess.run(docker_cmd + ["build", "-t", image_tag, str(host_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _build_with_spinner(t('docker_building_spinner'), docker_cmd + ["build", "-t", image_tag, str(host_dir)])
         finally:
             if dockerfile_path.exists(): dockerfile_path.unlink()
             if entrypoint_path.exists(): entrypoint_path.unlink()

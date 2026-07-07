@@ -15,14 +15,31 @@ class _SpinnerContext:
         self.is_spinning = False
         self.thread = None
         self.success = True
+        self._pct = None
+        self._bar = False
+        self._bar_width = 20
         self.spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
+    def set_progress(self, pct: float, eta: float = 0):
+        self._pct = pct
+        self._bar = True
+
     def spin(self):
-        i = 0
+        t0 = time.time()
         while self.is_spinning:
-            sys.stdout.write(f"\r\033[K{UI.CYAN}{self.spinner_chars[i]}{UI.RESET} {self.text}")
+            i = int((time.time() - t0) * 10) % len(self.spinner_chars)
+            ch = self.spinner_chars[i]
+            if self._bar:
+                pct = min(self._pct or 0, 100)
+                filled = int(self._bar_width * pct / 100)
+                bar = "█" * filled + "░" * (self._bar_width - filled)
+                elapsed = time.time() - t0
+                eta_s = elapsed / max(pct, 0.1) * (100 - pct) if pct > 1 else 0
+                eta_str = f"ETA: {eta_s:.0f}s" if eta_s < 3600 else f"ETA: {eta_s/60:.0f}m"
+                sys.stdout.write(f"\r\033[K{UI.CYAN}{ch}{UI.RESET} {bar} {pct:.0f}%  {eta_str}  {self.text}")
+            else:
+                sys.stdout.write(f"\r\033[K{UI.CYAN}{ch}{UI.RESET} {self.text}")
             sys.stdout.flush()
-            i = (i + 1) % len(self.spinner_chars)
             time.sleep(0.08)
 
     def __enter__(self):
@@ -38,10 +55,8 @@ class _SpinnerContext:
         self.is_spinning = False
         if self.thread:
             self.thread.join()
-        
         sys.stdout.write('\r\033[K')
         sys.stdout.flush()
-        
         if exc_type is not None or not self.success:
             UI.error(self.text)
         else:
