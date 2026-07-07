@@ -48,7 +48,7 @@ def load_config():
             return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    default = {"check_updates": True, "base_image": "ubuntu:24.04", "theme": "default"}
+    default = {"check_updates": True, "run_tests": False, "base_image": "ubuntu:24.04", "theme": "default"}
     try:
         CONFIG_FILE.write_text(json.dumps(default, indent=4), encoding="utf-8")
     except Exception:
@@ -288,11 +288,13 @@ def handle_settings(selected_lang):
         config = load_config()
         lang_name = "English" if selected_lang == "en" else "Nederlands"
         updates_status = t("settings_on") if config.get("check_updates", True) else t("settings_off")
+        tests_status = t("settings_on") if config.get("run_tests", False) else t("settings_off")
         current_theme = config.get("theme", "default")
         theme_name = t("theme_default") if current_theme == "default" else t("theme_minimal")
         lines = [
             f" {t('settings_lang', lang=lang_name)}",
             f" {t('settings_updates', status=updates_status)}",
+            f" {t('settings_tests', status=tests_status)}",
             f" {t('settings_theme', theme=theme_name)}",
             f" {t('settings_back')}"
         ]
@@ -313,6 +315,9 @@ def handle_settings(selected_lang):
             new_val = not config.get("check_updates", True)
             save_config(check_updates=new_val)
         elif s == "3":
+            new_val = not config.get("run_tests", False)
+            save_config(run_tests=new_val)
+        elif s == "4":
             new_theme = "minimal" if current_theme == "default" else "default"
             save_config(theme=new_theme)
             UI.border_enabled = new_theme != "minimal"
@@ -477,7 +482,9 @@ if __name__ == "__main__":
             time.sleep(2)
             continue
 
-        tests = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
+        tests = load_config().get("run_tests", False)
+        if tests:
+            UI.info(t('test_prompt') + " " + t('settings_on'))
 
         base_image = load_config().get("base_image", "ubuntu:24.04")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
