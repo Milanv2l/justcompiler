@@ -81,58 +81,75 @@ def check_for_updates():
     config = load_config()
     if not config.get("check_updates", True):
         return
+    try:
+        _do_update(ask=True)
+    except Exception:
+        pass
+
+def _force_update(selected_lang):
+    print()
+    try:
+        if _do_update(ask=False):
+            print(f"{UI.GREEN}[OK] JustCompiler updated! Please restart.{UI.RESET}")
+            sys.exit(0)
+    except Exception as e:
+        print(f"{UI.RED}[ERR] Update failed: {e}{UI.RESET}")
+        input(f"\n{UI.CYAN}{UI.BOLD}Press Enter to return...{UI.RESET}")
+        return selected_lang
+    print(f"{UI.YELLOW}[INFO] You are already on the latest version ({VERSION}).{UI.RESET}")
+    input(f"\n{UI.CYAN}{UI.BOLD}Press Enter to return...{UI.RESET}")
+    return selected_lang
+
+def _do_update(ask=True):
     global CURRENT_STATUS
-    set_current_status("Checking updates...")
     current_dir = Path(__file__).resolve().parent
     version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/main/version.txt"
-    try:
-        with urllib.request.urlopen(version_url, timeout=1.5) as response:
-            remote_version = response.read().decode('utf-8').strip()
-        if remote_version == VERSION:
-            return
+    with urllib.request.urlopen(version_url, timeout=3) as response:
+        remote_version = response.read().decode('utf-8').strip()
+    if remote_version == VERSION:
+        return False if not ask else None
+    if ask:
         print(f"{UI.YELLOW}[INFO] New version {remote_version} available (current: {VERSION}){UI.RESET}")
         confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()
         if confirm not in ['j', 'ja', 'y', 'yes']:
             return
-        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
-        set_current_status(f"Downloading v{remote_version}...")
-        temp_dir = current_dir / f".update_{remote_version}"
-        temp_dir.mkdir(exist_ok=True)
-        try:
-            for file_name in UPDATE_FILES:
-                file_url = f"{base_url}/{file_name}"
-                try:
-                    with urllib.request.urlopen(file_url, timeout=5) as file_response:
-                        (temp_dir / file_name).write_bytes(file_response.read())
-                except Exception:
-                    file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main/{file_name}"
-                    with urllib.request.urlopen(file_url, timeout=5) as file_response:
-                        (temp_dir / file_name).write_bytes(file_response.read())
-            checksums = load_checksums(temp_dir / "checksums.txt")
-            if checksums:
-                all_ok = True
-                for fname in UPDATE_FILES:
-                    if fname == "checksums.txt":
-                        continue
-                    if fname in checksums and not verify_checksum(temp_dir / fname, checksums[fname]):
-                        UI.warn(f"Checksum mismatch: {fname}")
-                        all_ok = False
-                if not all_ok:
-                    print(f"{UI.RED}[ERR] Checksum verification failed. Update aborted.{UI.RESET}")
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    return
-            for file_name in UPDATE_FILES:
-                src = temp_dir / file_name
-                if src.exists():
-                    shutil.copy2(src, current_dir / file_name)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            print(f"{UI.GREEN}[OK] JustCompiler updated to {remote_version}! Please restart.{UI.RESET}")
-            sys.exit(0)
-        except Exception:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
+    set_current_status(f"Downloading v{remote_version}...")
+    base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
+    temp_dir = current_dir / f".update_{remote_version}"
+    temp_dir.mkdir(exist_ok=True)
+    try:
+        for file_name in UPDATE_FILES:
+            file_url = f"{base_url}/{file_name}"
+            try:
+                with urllib.request.urlopen(file_url, timeout=5) as file_response:
+                    (temp_dir / file_name).write_bytes(file_response.read())
+            except Exception:
+                file_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main/{file_name}"
+                with urllib.request.urlopen(file_url, timeout=5) as file_response:
+                    (temp_dir / file_name).write_bytes(file_response.read())
+        checksums = load_checksums(temp_dir / "checksums.txt")
+        if checksums:
+            all_ok = True
+            for fname in UPDATE_FILES:
+                if fname == "checksums.txt":
+                    continue
+                if fname in checksums and not verify_checksum(temp_dir / fname, checksums[fname]):
+                    UI.warn(f"Checksum mismatch: {fname}")
+                    all_ok = False
+            if not all_ok:
+                print(f"{UI.RED}[ERR] Checksum verification failed. Update aborted.{UI.RESET}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False
+        for file_name in UPDATE_FILES:
+            src = temp_dir / file_name
+            if src.exists():
+                shutil.copy2(src, current_dir / file_name)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"{UI.GREEN}[OK] JustCompiler updated to {remote_version}! Please restart.{UI.RESET}")
+        return True
     except Exception:
-        pass
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
 def show_tui_header():
     UI.clear()
@@ -296,6 +313,7 @@ def handle_settings(selected_lang):
             f" {t('settings_updates', status=updates_status)}",
             f" {t('settings_tests', status=tests_status)}",
             f" {t('settings_theme', theme=theme_name)}",
+            f" {t('settings_force_update')}",
             f" {t('settings_back')}"
         ]
         UI.draw_panel(t('settings_title'), lines, color=UI.YELLOW)
@@ -321,6 +339,8 @@ def handle_settings(selected_lang):
             new_theme = "minimal" if current_theme == "default" else "default"
             save_config(theme=new_theme)
             UI.border_enabled = new_theme != "minimal"
+        elif s == "5":
+            return _force_update(selected_lang)
         else:
             return selected_lang
 
