@@ -71,17 +71,58 @@ class Engine:
                     break
 
         kw, all_output, errors = ["error:", "failed", "exception", "not supported", "syntaxerror", "cannot find"], [], []
+        is_tty = sys.stdout.isatty()
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        si, total, downloaded, t0 = 0, 0, 0, time.time()
+        progress_shown, bar_width = False, 20
+
+        def draw_progress(pct, eta):
+            nonlocal progress_shown
+            if not is_tty: return
+            filled = int(bar_width * pct / 100)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            spin = spinner_chars[int(time.time() * 10) % len(spinner_chars)]
+            eta_str = f"ETA: {eta:.0f}s" if eta < 3600 else f"ETA: {eta/60:.0f}m"
+            sys.stdout.write(f"\r\033[K{UI.CYAN}{spin}{UI.RESET} {bar} {pct:.0f}%  {eta_str}")
+            sys.stdout.flush()
+            progress_shown = True
+
         with open(self.log_file, "a", encoding="utf-8") as log:
             log.write(f"\n--- RUN: {cmd} ---\n")
             proc = subprocess.Popen(cmd, shell=True, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
             for line in proc.stdout:
                 log.write(line)
                 log.flush()
-                print(line, end="", flush=True)
                 all_output.append(line.rstrip())
+
+                is_progress = False
+                if "Progress:" in line and "resolved" in line:
+                    import re
+                    m = re.search(r"resolved (\d+).*?downloaded (\d+)", line)
+                    if m:
+                        total, downloaded = int(m.group(1)), int(m.group(2))
+                        is_progress = True
+                elif line.startswith(".../") or line.startswith("Progress:"):
+                    is_progress = True
+
+                if is_progress and is_tty:
+                    pct = min(downloaded / max(total, 1) * 100, 99.9)
+                    elapsed = time.time() - t0
+                    eta = elapsed / pct * (100 - pct) if pct > 1 else 0
+                    draw_progress(pct, eta)
+                else:
+                    if progress_shown:
+                        sys.stdout.write("\r\033[K")
+                        sys.stdout.flush()
+                        progress_shown = False
+                    print(line, end="", flush=True)
+
                 if any(k in line.lower() for k in kw) and len(errors) < 30:
                     if line.strip() and line.strip() not in errors: errors.append(line.strip())
             proc.wait()
+        if progress_shown:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
         if proc.returncode != 0 and not errors:
             errors = all_output[-20:]
         return proc.returncode == 0, errors

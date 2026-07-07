@@ -2,7 +2,7 @@
 # Regenerate: cd justcompiler && sha256sum core.py docker_manager.py engine.py justcompiler.py plugins.json version.txt Linux/setup.sh Linux/update.sh Linux/uninstall.sh Windows/setup.ps1 Windows/update.ps1 Windows/uninstall.ps1 | sed 's|Linux/||; s|Windows/||'
 9e981f9a7a041c0a381346cf9abd0e633e399db32b3ff441a4871ab6b479f653  core.py
 f4189e55491b908e07b50e4892e836c919c73b14ba480100157af0069eb7d38b  docker_manager.py
-8e7af06767208db814136a43ffc7b67f83d7b43ab6a9c1ed2bf2350ea4959fd7  engine.py
+50268f80e819e5fc5a3b76755098881dc3ccf0bb9e7c52501281da5c6b97d0d5  engine.py
 1348e9b0107bed9842818e71adc84a4285df9f8c52e30bfb978328c812ad2ce3  justcompiler.py
 04b5fcf670411b8a03e7574c198776b2a60dbf1d1d2847f2eb1b1836cfb5576e  plugins.json
 563a0b4eec3c77bbc34ac630d4fa5214f5c6726ae01468404fd704473110084e  version.txt
