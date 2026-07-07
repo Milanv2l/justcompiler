@@ -164,6 +164,7 @@ class Engine:
                             try:
                                 if f.is_file() and (f.suffix in plugin["out_exts"] or (not f.suffix and os.access(f, os.X_OK))):
                                     if "node_modules" in f.parts: continue
+                                    if f.name.startswith('.'): continue
                                     dest_f = self.out_root / f"{name}_{f.name}"
                                     shutil.copy2(f, dest_f)
                                     items.append({"name": dest_f.name})
