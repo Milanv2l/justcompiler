@@ -390,6 +390,7 @@ class Engine:
         report_line = t('report_status', green=UI.GREEN, success=self.stats['success'], red=UI.RED, failed=self.stats['failed'], yellow=UI.YELLOW, skipped=self.stats['skipped'], reset=UI.RESET, time=elapsed)
         UI.draw_panel(t('report_header'), [report_line], color=UI.CYAN)
         self.dep_mgr.cleanup()
+        return self.stats['failed'] == 0
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
@@ -401,4 +402,5 @@ if __name__ == "__main__":
     args = p.parse_args()
 
     core.set_lang(args.lang)
-    Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install).run()
+    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install).run()
+    sys.exit(0 if ok else 1)
