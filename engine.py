@@ -479,11 +479,14 @@ class Engine:
 
         t0 = time.time()
         attempt = 0
+        build_ok = False
+        build_errs = []
         while attempt < 3:
             attempt += 1
             cmd = self.build_cmd(root, plugin, attempt)
             UI.log(UI.CYAN, t('act_build'), f"Strategy {attempt}/3...")
             ok, errs = self.run_cmd(cmd, root)
+            build_errs = errs
             if ok:
                 dur = round(time.time() - t0, 1)
                 UI.log(UI.GREEN, t('act_ready'), f"{name} in {dur}s")
@@ -492,6 +495,8 @@ class Engine:
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": artifacts})
                     self.stats["success"] += 1
                     return
+                build_ok = True
+                break
             else:
                 if self.parse_and_rescue(errs):
                     UI.log(UI.GREEN, "AI-RESCUE   ", "Dependency installed successfully! Retrying build...")
@@ -502,8 +507,40 @@ class Engine:
                 for e in errs: print(f"     {UI.RED}➔ {e}{UI.RESET}")
             UI.log(UI.YELLOW, t('act_retry'), t('fallback_msg'))
 
+        if build_ok:
+            dur = round(time.time() - t0, 1)
+            candidates = [root]
+            if root.parent and root.parent != root:
+                candidates.append(root.parent)
+            for root_candidate in candidates:
+                scripts = self._detect_entry_scripts(root_candidate)
+                if scripts:
+                    UI.log(UI.GREEN, "Entry points", f"found {len(scripts)} script(s)")
+                    self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts})
+                    self.stats["success"] += 1
+                    return
+            self.stats["failed"] += 1
+            return
+
         UI.log(UI.RED, t('act_fail'), t('compile_fail'))
         self.stats["failed"] += 1
+
+    def _detect_entry_scripts(self, root: Path) -> list:
+        found = []
+        for f in root.iterdir():
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            if f.suffix in ('.sh', '.bash', '.py', '.pl', '.rb', '.lua', '.js', '.ts'):
+                found.append({"name": f.name, "kind": "script"})
+            elif f.suffix == '' and not f.name.startswith('.'):
+                try:
+                    with open(f, 'rb') as fh:
+                        head = fh.read(64)
+                    if head.startswith(b'#!'):
+                        found.append({"name": f.name, "kind": "script"})
+                except Exception:
+                    pass
+        return found
 
     def run(self, filter_name=""):
         t0 = time.time()
