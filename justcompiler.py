@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -486,13 +486,12 @@ if __name__ == "__main__":
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
                     subprocess.run(cmd, shell=platform.system() == "Windows")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
-            else:
-                ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
-                if ans in ['j', 'ja', 'y', 'yes']:
-                    if platform.system() == "Windows":
-                        subprocess.Popen(["explorer", str(build_folder.resolve())])
-                    elif platform.system() == "Darwin":
-                        subprocess.Popen(["open", str(build_folder.resolve())])
-                    else:
-                        subprocess.Popen(["xdg-open", str(build_folder.resolve())])
+            ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
+            if ans in ['j', 'ja', 'y', 'yes']:
+                if platform.system() == "Windows":
+                    subprocess.Popen(["explorer", str(build_folder.resolve())])
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["open", str(build_folder.resolve())])
+                else:
+                    subprocess.Popen(["xdg-open", str(build_folder.resolve())])
         input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{UI.DIM}{t('press_enter')}{UI.RESET}")

@@ -25,6 +25,10 @@ def _compute_engine_hash(host_dir: Path) -> str:
             hasher.update(fpath.read_bytes())
     return hasher.hexdigest()[:16]
 
+def _volume_name(target_path: Path) -> str:
+    h = hashlib.sha256(str(target_path.resolve()).encode()).hexdigest()[:12]
+    return f"justcompiler-{h}"
+
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04"):
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
@@ -97,11 +101,12 @@ RUN chmod +x /workspace/entrypoint.sh
 ENTRYPOINT ["/workspace/entrypoint.sh"]
 """
         entrypoint_content = """#!/bin/bash
-mkdir -p /workspace/artifacts
+set -e
+mkdir -p /workspace/artifacts /workspace/persist
 if [ -d /workspace/src ]; then
-    cp -R /workspace/src /workspace/build_src
+    cp -ur /workspace/src/. /workspace/persist/
 fi
-exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/artifacts "$@"
+exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/artifacts "$@"
 """
         dockerfile_path = host_dir / "Dockerfile"
         entrypoint_path = host_dir / "entrypoint.sh"
@@ -126,10 +131,14 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
     for p in cache_dirs.values(): 
         p.mkdir(parents=True, exist_ok=True)
 
+    vol_name = _volume_name(target_path)
+    subprocess.run(docker_cmd + ["volume", "create", vol_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     # Alle cache-mappen worden nu daadwerkelijk gekoppeld aan de container voor optimaal hergebruik
     run_cmd = docker_cmd + [
         "run", "--name", "justcompiler_active_run", "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
+        "-v", f"{vol_name}:/workspace/persist:z",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
         "-v", f"{cache_dirs['maven']}:/root/.m2:z",
         "-v", f"{cache_dirs['npm']}:/root/.npm:z",
