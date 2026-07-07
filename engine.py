@@ -516,6 +516,26 @@ class Engine:
                 if d.is_dir() and (d / "package.json").exists():
                     ws_children.add(str(d.resolve()))
 
+        def _has_parent_marker(root: str, detect_list: list) -> bool:
+            cur = Path(root).resolve()
+            src = Path(self.src_root).resolve()
+            while cur != src and cur != cur.parent:
+                cur = cur.parent
+                if cur < src:
+                    break
+                try:
+                    parent_files = set(f.name for f in cur.iterdir() if f.is_file())
+                except Exception:
+                    continue
+                for d in detect_list:
+                    if "*" in d:
+                        pat = d.replace("*", "")
+                        if any(f.endswith(pat) or f == pat for f in parent_files):
+                            return True
+                    elif d in parent_files:
+                        return True
+            return False
+
         for root, dirs, files in os.walk(str(self.src_root)):
             root_p = str(Path(root).resolve())
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache"]]
@@ -527,6 +547,10 @@ class Engine:
                 if filter_name and p["name"] != filter_name:
                     continue
                 if any(f in files for f in p["detect"]) or any(any(f.endswith(d.replace('*', '')) for f in files) for d in p["detect"] if '*' in d):
+                    pname = p.get("tool", "") or p["name"]
+                    if _has_parent_marker(root, p["detect"]):
+                        self.stats["skipped"] += 1
+                        break
                     self.process(Path(root), files, p)
                     break
 
