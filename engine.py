@@ -142,16 +142,51 @@ class Engine:
             path = path.parent
         return None
 
-    def _find_workspace_root(self, root: Path) -> Path | None:
+    def _find_workspace_root(self, root: Path) -> dict | None:
         for p in [root] + list(root.parents):
+            # JS monorepos
             if p.joinpath("pnpm-workspace.yaml").exists():
-                return p
+                return {"root": p, "type": "pnpm"}
+            if p.joinpath("nx.json").exists():
+                return {"root": p, "type": "nx"}
+            if p.joinpath("turbo.json").exists():
+                return {"root": p, "type": "turbo"}
+            if p.joinpath("lerna.json").exists():
+                return {"root": p, "type": "lerna"}
             try:
                 pkg = json.loads(p.joinpath("package.json").read_text())
                 if "workspaces" in pkg:
-                    return p
+                    return {"root": p, "type": "npm" if not p.joinpath("pnpm-lock.yaml").exists() and not p.joinpath("yarn.lock").exists() else ("pnpm" if p.joinpath("pnpm-lock.yaml").exists() else "yarn")}
             except Exception:
                 pass
+            # Go workspace
+            if p.joinpath("go.work").exists():
+                return {"root": p, "type": "go"}
+            # Java/Gradle multi-project
+            for gradle_file in ["settings.gradle", "settings.gradle.kts"]:
+                if p.joinpath(gradle_file).exists():
+                    try:
+                        text = p.joinpath(gradle_file).read_text()
+                        if "include" in text:
+                            return {"root": p, "type": "gradle"}
+                    except Exception:
+                        pass
+            # Java/Maven multi-module
+            if p.joinpath("pom.xml").exists():
+                try:
+                    text = p.joinpath("pom.xml").read_text()
+                    if "<module>" in text:
+                        return {"root": p, "type": "maven"}
+                except Exception:
+                    pass
+            # Rust workspace
+            if p.joinpath("Cargo.toml").exists():
+                try:
+                    text = p.joinpath("Cargo.toml").read_text()
+                    if "[workspace]" in text:
+                        return {"root": p, "type": "cargo"}
+                except Exception:
+                    pass
             if p == self.src_root:
                 break
         return None
@@ -165,23 +200,35 @@ class Engine:
             if "mvn" in tool: return f"\"{wrap}\" clean package -DskipTests"
 
         if cmd == "DYNAMIC_JS_RESOLUTION":
-            install_cmd = f"npm install --legacy-peer-deps" if tool != "pnpm" else f"pnpm install --no-frozen-lockfile"
             ws = self._find_workspace_root(root)
             if ws:
-                if tool == "pnpm":
+                t = ws["type"]
+                if t == "pnpm":
                     install_cmd = "pnpm install --no-frozen-lockfile"
                     build_cmd = "pnpm run -r build"
-                elif tool == "yarn":
+                elif t == "yarn":
                     install_cmd = "yarn install --frozen-lockfile"
                     build_cmd = "yarn workspaces run build"
+                elif t == "nx":
+                    install_cmd = f"{tool} install --no-frozen-lockfile" if tool == "pnpm" else f"npm install --legacy-peer-deps"
+                    build_cmd = "npx nx run-many --target=build --all"
+                elif t == "turbo":
+                    install_cmd = f"{tool} install --no-frozen-lockfile" if tool == "pnpm" else f"npm install --legacy-peer-deps"
+                    build_cmd = "npx turbo run build"
+                elif t == "lerna":
+                    install_cmd = f"{tool} install --no-frozen-lockfile" if tool == "pnpm" else f"npm install --legacy-peer-deps"
+                    build_cmd = "npx lerna run build"
                 else:
                     install_cmd = "npm install --legacy-peer-deps"
                     build_cmd = "npm run build --workspaces"
             else:
+                install_cmd = f"npm install --legacy-peer-deps" if tool != "pnpm" else f"pnpm install --no-frozen-lockfile"
                 build_cmd = f"{tool} run build" if (root / "package.json").exists() else install_cmd
             return f"{install_cmd} && {build_cmd}"
         elif cmd == "DYNAMIC_GO_RESOLUTION":
-            return "go build -o build_output\\ ./..." if sys.platform == "win32" else "go build -o build_output/ ./..."
+            ws = self._find_workspace_root(root)
+            prefix = f"cd {ws['root']} && " if ws and ws["type"] == "go" else ""
+            return f"{prefix}go build -o build_output\\ ./..." if sys.platform == "win32" else f"{prefix}go build -o build_output/ ./..."
         elif cmd == "DYNAMIC_PYTHON_RESOLUTION":
             if (root / "pyproject.toml").exists():
                 return "pip3 install build && python3 -m build --outdir dist"
