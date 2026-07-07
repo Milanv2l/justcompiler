@@ -209,7 +209,7 @@ class Engine:
                 t = ws["type"]
                 if t == "pnpm":
                     install_cmd = "pnpm install --no-frozen-lockfile"
-                    build_cmd = "pnpm run -r build"
+                    build_cmd = "pnpm run -r build" if attempt == 1 else "pnpm run --filter xmcl-electron-app build 2>/dev/null || pnpm run build"
                 elif t == "yarn":
                     install_cmd = "yarn install --frozen-lockfile"
                     build_cmd = "yarn workspaces run build"
