@@ -198,6 +198,8 @@ _TRANSLATIONS = {
         "compile_fail": "Compilation failed completely.",
         "report_header": "=== BUILD REPORT ===",
         "report_status": "{green}{success} Passed{reset} | {red}{failed} Failed{reset} | {yellow}{skipped} Skipped{reset} ({time}s)",
+        "build_ready": "Build artifacts detected:",
+        "run_prompt": "Run which artifact? (number / Enter to skip):",
         "open_folder": "Open output folder? (y/n):",
         "press_enter": "Press Enter to return to dashboard...",
     },
@@ -265,6 +267,8 @@ _TRANSLATIONS = {
         "compile_fail": "Compilatie volledig mislukt.",
         "report_header": "=== BUILD RAPPORT ===",
         "report_status": "{green}{success} Geslaagd{reset} | {red}{failed} Mislukt{reset} | {yellow}{skipped} Overgeslagen{reset} ({time}s)",
+        "build_ready": "Build artefacten gevonden:",
+        "run_prompt": "Welk artefact uitvoeren? (nummer / Enter om over te slaan):",
         "open_folder": "Uitvoermap openen? (j/n):",
         "press_enter": "Druk op Enter om terug te keren...",
     }

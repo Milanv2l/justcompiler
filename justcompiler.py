@@ -319,6 +319,29 @@ def handle_settings(selected_lang):
         else:
             return selected_lang
 
+def _detect_artifacts(folder: Path) -> list:
+    found = []
+    for f in folder.iterdir():
+        if not f.is_file() or f.stat().st_size == 0:
+            continue
+        try:
+            magic = f.read_bytes()[:4]
+        except Exception:
+            magic = b""
+        if magic == b"\x7fELF":
+            found.append(("binary", f.name, [str(f)]))
+        elif f.suffix == ".jar":
+            found.append(("jar", f.name, ["java", "-jar", str(f)]))
+        elif f.suffix == ".exe":
+            found.append(("exe", f.name, [str(f)]))
+        elif f.suffix in (".sh", ".bash"):
+            found.append(("script", f.name, ["bash", str(f)]))
+        elif f.suffix == ".py":
+            found.append(("python", f.name, ["python3", str(f)]))
+        elif f.suffix == ".js":
+            found.append(("node", f.name, ["node", str(f)]))
+    return found
+
 if __name__ == "__main__":
     init_terminal_colors()
 
@@ -413,12 +436,24 @@ if __name__ == "__main__":
 
         sys.stdout.flush()
         if success and any(build_folder.iterdir()):
-            ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
-            if ans in ['j', 'ja', 'y', 'yes']:
-                if platform.system() == "Windows":
-                    subprocess.Popen(["explorer", str(build_folder.resolve())])
-                elif platform.system() == "Darwin":
-                    subprocess.Popen(["open", str(build_folder.resolve())])
-                else:
-                    subprocess.Popen(["xdg-open", str(build_folder.resolve())])
+            artifacts = _detect_artifacts(build_folder)
+            if artifacts:
+                UI.success(t('build_ready'))
+                for i, (kind, name, _) in enumerate(artifacts, 1):
+                    print(f"  {UI.CYAN}[{i}]{UI.RESET} {name}  ({kind})")
+                ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('run_prompt')} ").strip()
+                if ans.isdigit() and 1 <= int(ans) <= len(artifacts):
+                    _, _, cmd = artifacts[int(ans) - 1]
+                    print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
+                    subprocess.run(cmd)
+                    print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
+            else:
+                ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
+                if ans in ['j', 'ja', 'y', 'yes']:
+                    if platform.system() == "Windows":
+                        subprocess.Popen(["explorer", str(build_folder.resolve())])
+                    elif platform.system() == "Darwin":
+                        subprocess.Popen(["open", str(build_folder.resolve())])
+                    else:
+                        subprocess.Popen(["xdg-open", str(build_folder.resolve())])
         input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{UI.DIM}{t('press_enter')}{UI.RESET}")
