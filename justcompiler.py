@@ -459,6 +459,27 @@ def handle_settings(selected_lang):
         else:
             return selected_lang
 
+def _auto_pick_artifact(artifacts: list) -> tuple | None:
+    scores = []
+    for kind, name, cmd in artifacts:
+        score = 0
+        low = name.lower()
+        if "-sources" in low or "-javadoc" in low or "-doc" in low:
+            score -= 100
+        if kind == "mod":
+            score += 50
+        elif kind in ("plugin", "bungee-plugin", "velocity-plugin"):
+            score += 40
+        elif kind == "binary":
+            score += 10
+        elif kind == "executable":
+            score += 10
+        scores.append((score, kind, name, cmd))
+    scores.sort(key=lambda x: (-x[0], x[2]))
+    if scores and scores[0][0] > -100:
+        return (scores[0][1], scores[0][2], scores[0][3])
+    return artifacts[0] if artifacts else None
+
 def _detect_artifacts(folder: Path) -> list:
     found = []
     is_windows = platform.system() == "Windows"
@@ -650,12 +671,10 @@ if __name__ == "__main__":
         if success and any(build_folder.iterdir()):
             artifacts = _detect_artifacts(build_folder)
             if artifacts:
-                UI.success(t('build_ready'))
-                for i, (kind, name, _) in enumerate(artifacts, 1):
-                    print(f"  {UI.CYAN}[{i}]{UI.RESET} {name}  ({kind})")
-                ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('run_prompt')} ").strip()
-                if ans.isdigit() and 1 <= int(ans) <= len(artifacts):
-                    _, _, cmd = artifacts[int(ans) - 1]
+                best = _auto_pick_artifact(artifacts)
+                if best:
+                    kind, name, cmd = best
+                    UI.success(f"{t('build_ready')} {name} ({kind})")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
                     subprocess.run(cmd, shell=platform.system() == "Windows")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
