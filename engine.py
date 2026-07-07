@@ -529,7 +529,7 @@ class Engine:
                     if not proj_dest.exists():
                         shutil.copytree(root_candidate, proj_dest, ignore=shutil.ignore_patterns('.*', 'node_modules', 'venv', '__pycache__', 'build', 'target', 'dist', 'bin'), dirs_exist_ok=True)
                         UI.log(UI.GREEN, t('act_saved'), f"Source -> {proj_dest.name}")
-                    self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts})
+                    self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts, "runtime_deps": plugin.get("runtime_deps", [])})
                     self.stats["success"] += 1
                     return
             self.stats["failed"] += 1

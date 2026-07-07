@@ -24,7 +24,21 @@
         "cmd_system": "meson setup build && meson compile -C build",
         "out_dirs": ["build"],
         "out_exts": ["", ".exe"],
-        "specificity": 3
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "GTK4",
+                "apt": "libgtk-4-dev gir1.2-gtk-4.0",
+                "pacman": "gtk4",
+                "dnf": "gtk4-devel"
+            },
+            {
+                "pkg": "AyatanaAppIndicator",
+                "apt": "gir1.2-ayatanaappindicator3-0.1",
+                "pacman": "libayatana-appindicator",
+                "dnf": "libayatana-appindicator-gtk3"
+            }
+        ]
     },
     {
         "name": "C++ (Qt6 / qmake)",

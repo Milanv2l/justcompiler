@@ -463,6 +463,29 @@ def handle_settings(selected_lang):
         else:
             return selected_lang
 
+def _show_runtime_hints(build_folder: Path):
+    manifest_file = build_folder / "build_manifest.json"
+    try:
+        manifest = json.loads(manifest_file.read_text())
+    except Exception:
+        return
+    deps = set()
+    for proj in manifest.get("projects", []):
+        for dep in proj.get("runtime_deps", []):
+            deps.add((dep["pkg"], dep.get("apt", ""), dep.get("pacman", ""), dep.get("dnf", "")))
+    if not deps:
+        return
+    print(f"\n{UI.YELLOW}⚠ Possible missing runtime dependencies:{UI.RESET}")
+    for pkg, apt, pacman, dnf in sorted(deps):
+        if pkg:
+            print(f"  {UI.CYAN}• {pkg}{UI.RESET}")
+            if pacman:
+                print(f"    {UI.GREEN}Arch:{UI.RESET} sudo pacman -S {pacman}")
+            if apt:
+                print(f"    {UI.GREEN}Debian/Ubuntu:{UI.RESET} sudo apt install {apt}")
+            if dnf:
+                print(f"    {UI.GREEN}Fedora:{UI.RESET} sudo dnf install {dnf}")
+
 def _auto_pick_artifact(artifacts: list) -> tuple | None:
     scores = []
     for kind, name, cmd, cwd in artifacts:
@@ -717,8 +740,10 @@ if __name__ == "__main__":
                     kind, name, cmd, cwd = best
                     UI.success(f"{t('build_ready')} {name} ({kind})")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
-                    subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
+                    res = subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
+                    if res.returncode != 0:
+                        _show_runtime_hints(build_folder)
             ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
             if ans in ['j', 'ja', 'y', 'yes']:
                 if platform.system() == "Windows":
