@@ -5,6 +5,7 @@ import shutil
 import platform
 import json
 import time
+import hashlib
 from pathlib import Path
 from core import UI, t
 
@@ -16,21 +17,15 @@ def get_docker_cmd():
                 docker_cmd = ["sudo", "docker"]
     return docker_cmd
 
-def detect_local_versions():
-    if not shutil.which("docker"):
-        return []
-    
-    docker_cmd = get_docker_cmd()
-    try:
-        res = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "--format", "{{.Tag}}"], capture_output=True, text=True)
-        if res.returncode == 0:
-            tags = [line.strip() for line in res.stdout.splitlines() if line.strip() and line.strip() != "<none>"]
-            return sorted(list(set(tags)), reverse=True)
-    except Exception:
-        pass
-    return []
+def _compute_engine_hash(host_dir: Path) -> str:
+    hasher = hashlib.sha256()
+    for fname in ["core.py", "engine.py", "plugins.json"]:
+        fpath = host_dir / fname
+        if fpath.exists():
+            hasher.update(fpath.read_bytes())
+    return hasher.hexdigest()[:16]
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, version_to_use: str, current_version: str, base_image: str = "ubuntu:24.04"):
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04"):
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -49,15 +44,12 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         ]
         plugins_path.write_text(json.dumps(default_plugins, indent=4), encoding="utf-8")
 
-    image_tag = f"justcompiler-engine:{version_to_use}"
+    image_tag = f"justcompiler-engine:{_compute_engine_hash(host_dir)}"
 
     set_status_fn(t('docker_cache_check'))
     check_image = subprocess.run(docker_cmd + ["images", "-q", image_tag], capture_output=True, text=True)
-    
+
     if not check_image.stdout.strip():
-        if version_to_use != current_version:
-            UI.error(t('err_custom_version_missing', version=version_to_use))
-            sys.exit(1)
 
         # STAP 1: Controleer of de zware basisomgeving (justcompiler-base) al lokaal bestaat
         check_base = subprocess.run(docker_cmd + ["images", "-q", "justcompiler-base:latest"], capture_output=True, text=True)

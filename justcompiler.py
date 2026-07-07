@@ -397,24 +397,6 @@ if __name__ == "__main__":
 
         tests = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('test_prompt')}{UI.RESET}").strip().lower() in ['j', 'ja', 'y', 'yes']
 
-        version_to_use = VERSION
-        local_tags = docker_manager.detect_local_versions()
-
-        if local_tags:
-            version_lines = [f" [1] 🌟 Default / Standaard ({VERSION}) [Aanbevolen]"]
-            for idx, tag in enumerate(local_tags, start=2):
-                version_lines.append(f" [{idx}] 📦 Hergebruik containerversie: {tag}")
-
-            UI.draw_panel(t('docker_version_detected_title'), version_lines, color=UI.CYAN)
-            v_choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('docker_version_detected_prompt')}{UI.RESET}").strip()
-
-            if v_choice.isdigit():
-                v_idx = int(v_choice)
-                if v_idx == 1:
-                    version_to_use = VERSION
-                elif 2 <= v_idx <= len(local_tags) + 1:
-                    version_to_use = local_tags[v_idx - 2]
-
         base_image = load_config().get("base_image", "ubuntu:24.04")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         project_name = target.resolve().name
@@ -426,8 +408,6 @@ if __name__ == "__main__":
             run_tests=tests,
             lang=selected_lang,
             set_status_fn=set_current_status,
-            version_to_use=version_to_use,
-            current_version=VERSION,
             base_image=base_image
         )
 
