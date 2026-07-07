@@ -204,7 +204,7 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
 def _force_update(selected_lang):
     print()
     try:
-        if _do_update(ask=False):
+        if _do_update(ask=False, force=True):
             print(f"{UI.GREEN}[OK] JustCompiler updated! Please restart.{UI.RESET}")
             sys.exit(0)
     except Exception as e:
@@ -215,21 +215,27 @@ def _force_update(selected_lang):
     input(f"\n{UI.CYAN}{UI.BOLD}Press Enter to return...{UI.RESET}")
     return selected_lang
 
-def _do_update(ask=True):
+def _do_update(ask=True, force=False):
     global CURRENT_STATUS
     current_dir = Path(__file__).resolve().parent
     version_url = "https://raw.githubusercontent.com/Milanv2l/justcompiler/main/version.txt"
     with urllib.request.urlopen(version_url, timeout=3) as response:
         remote_version = response.read().decode('utf-8').strip()
-    if remote_version == VERSION:
+    if not force and remote_version == VERSION:
         return False if not ask else None
     if ask:
         print(f"{UI.YELLOW}[INFO] New version {remote_version} available (current: {VERSION}){UI.RESET}")
         confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()
         if confirm not in ['j', 'ja', 'y', 'yes']:
             return
-    set_current_status(f"Downloading v{remote_version}...")
-    base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
+    if not force:
+        set_current_status(f"Downloading v{remote_version}...")
+        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
+        version_label = remote_version
+    else:
+        set_current_status(f"Re-downloading v{remote_version}...")
+        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main"
+        version_label = remote_version
     temp_dir = current_dir / f".update_{remote_version}"
     temp_dir.mkdir(exist_ok=True)
     try:
