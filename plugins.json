@@ -1,854 +1,2211 @@
 [
     {
         "name": "C (Linux Kernel)",
-        "detect": ["Kconfig", "Kbuild"],
+        "detect": [
+            "Kconfig",
+            "Kbuild"
+        ],
         "tool": "kernel-build",
         "cmd_system": "make defconfig && make -j$(nproc)",
-        "out_dirs": ["arch/x86/boot", "."],
-        "out_exts": ["bzImage", "vmlinux", ".ko"],
-        "specificity": 3
+        "out_dirs": [
+            "arch/x86/boot",
+            "."
+        ],
+        "out_exts": [
+            "bzImage",
+            "vmlinux",
+            ".ko"
+        ],
+        "specificity": 3,
+        "runtime_deps": []
     },
     {
         "name": "Crystal",
-        "detect": ["shard.yml"],
+        "detect": [
+            "shard.yml"
+        ],
         "tool": "shards",
         "cmd_system": "shards build --release",
-        "out_dirs": ["bin"],
-        "out_exts": ["", ".exe"],
-        "specificity": 10
+        "out_dirs": [
+            "bin"
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Vala (Meson)",
-        "detect": ["meson.build"],
+        "detect": [
+            "meson.build"
+        ],
         "tool": "valac",
         "cmd_system": "meson setup build && meson compile -C build",
-        "out_dirs": ["build"],
-        "out_exts": ["", ".exe"],
+        "out_dirs": [
+            "build"
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
         "specificity": 3,
         "runtime_deps": [
             {
                 "pkg": "GTK4",
                 "apt": "libgtk-4-dev gir1.2-gtk-4.0",
                 "pacman": "gtk4",
-                "dnf": "gtk4-devel"
+                "dnf": "gtk4-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             },
             {
                 "pkg": "AyatanaAppIndicator",
                 "apt": "gir1.2-ayatanaappindicator3-0.1",
                 "pacman": "libayatana-appindicator",
-                "dnf": "libayatana-appindicator-gtk3"
+                "dnf": "libayatana-appindicator-gtk3",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "GLib",
+                "apt": "libglib2.0-dev",
+                "pacman": "glib2",
+                "dnf": "glib2-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Gee",
+                "apt": "libgee-0.8-dev",
+                "pacman": "libgee",
+                "dnf": "libgee-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "JSON-GLib",
+                "apt": "libjson-glib-dev",
+                "pacman": "json-glib",
+                "dnf": "json-glib-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "libsoup3",
+                "apt": "libsoup-3.0-dev",
+                "pacman": "libsoup3",
+                "dnf": "libsoup3-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "C++ (Qt6 / qmake)",
-        "detect": ["*.pro"],
+        "detect": [
+            "*.pro"
+        ],
         "tool": "qmake6",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
-        "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so"],
+        "out_dirs": [
+            "build",
+            "release",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".appimage",
+            ".so"
+        ],
         "specificity": 3,
         "runtime_deps": [
             {
                 "pkg": "Qt6 Runtime",
                 "apt": "qt6-base-dev libqt6widgets6 libqt6gui6",
                 "pacman": "qt6-base",
-                "dnf": "qt6-qtbase-devel"
+                "dnf": "qt6-qtbase-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Qt6 Quick",
+                "apt": "qt6-quick-dev",
+                "pacman": "qt6-quick",
+                "dnf": "qt6-qtquick-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Qt6 Network",
+                "apt": "qt6-base-dev",
+                "pacman": "qt6-base",
+                "dnf": "qt6-qtbase-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Qt6 WebEngine",
+                "apt": "qt6-webengine-dev",
+                "pacman": "qt6-webengine",
+                "dnf": "qt6-qtwebengine-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenGL (Mesa)",
+                "apt": "libgl1-mesa-dev",
+                "pacman": "mesa",
+                "dnf": "mesa-libGL-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "C++ (Qt5 / qmake)",
-        "detect": ["*.pro"],
+        "detect": [
+            "*.pro"
+        ],
         "tool": "qmake",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
-        "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so"],
+        "out_dirs": [
+            "build",
+            "release",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".appimage",
+            ".so"
+        ],
         "specificity": 3,
         "runtime_deps": [
             {
                 "pkg": "Qt5 Runtime",
                 "apt": "qtbase5-dev libqt5widgets5 libqt5gui5",
                 "pacman": "qt5-base",
-                "dnf": "qt5-qtbase-devel"
+                "dnf": "qt5-qtbase-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Qt5 Quick",
+                "apt": "qtdeclarative5-dev",
+                "pacman": "qt5-quick",
+                "dnf": "qt5-qtdeclarative-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Qt5 WebEngine",
+                "apt": "qtwebengine5-dev",
+                "pacman": "qt5-webengine",
+                "dnf": "qt5-qtwebengine-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenGL (Mesa)",
+                "apt": "libgl1-mesa-dev",
+                "pacman": "mesa",
+                "dnf": "mesa-libGL-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "C++ (CMake)",
-        "detect": ["CMakeLists.txt"],
+        "detect": [
+            "CMakeLists.txt"
+        ],
         "tool": "cmake",
         "cmd_system": "DYNAMIC_CPP_RESOLUTION",
-        "out_dirs": ["build", "release", "bin", "."],
-        "out_exts": [".exe", "", ".appimage", ".so", ".dll"],
-        "specificity": 3
+        "out_dirs": [
+            "build",
+            "release",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".appimage",
+            ".so",
+            ".dll"
+        ],
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "SDL2",
+                "apt": "libsdl2-dev",
+                "pacman": "sdl2",
+                "dnf": "SDL2-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenGL (Mesa)",
+                "apt": "libgl1-mesa-dev",
+                "pacman": "mesa",
+                "dnf": "mesa-libGL-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "GLFW",
+                "apt": "libglfw3-dev",
+                "pacman": "glfw",
+                "dnf": "glfw-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Vulkan SDK",
+                "apt": "libvulkan-dev",
+                "pacman": "vulkan-devel",
+                "dnf": "vulkan-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenSSL",
+                "apt": "libssl-dev",
+                "pacman": "openssl",
+                "dnf": "openssl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "cURL",
+                "apt": "libcurl4-openssl-dev",
+                "pacman": "curl",
+                "dnf": "libcurl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Zlib",
+                "apt": "zlib1g-dev",
+                "pacman": "zlib",
+                "dnf": "zlib-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Freetype",
+                "apt": "libfreetype6-dev",
+                "pacman": "freetype2",
+                "dnf": "freetype-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "C++ (Autoconf / configure)",
-        "detect": ["configure.ac", "configure.in"],
+        "detect": [
+            "configure.ac",
+            "configure.in"
+        ],
         "tool": "autoconf",
         "cmd_system": "autoreconf -fi && ./configure && make -j$(nproc)",
-        "out_dirs": ["build", "bin", "."],
-        "out_exts": [".exe", "", ".so"],
-        "specificity": 3
+        "out_dirs": [
+            "build",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".so"
+        ],
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "ncurses",
+                "apt": "libncurses5-dev",
+                "pacman": "ncurses",
+                "dnf": "ncurses-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Readline",
+                "apt": "libreadline-dev",
+                "pacman": "readline",
+                "dnf": "readline-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenSSL",
+                "apt": "libssl-dev",
+                "pacman": "openssl",
+                "dnf": "openssl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "cURL",
+                "apt": "libcurl4-openssl-dev",
+                "pacman": "curl",
+                "dnf": "libcurl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "C/C++ (Makefile)",
-        "detect": ["Makefile", "makefile", "GNUmakefile"],
+        "detect": [
+            "Makefile",
+            "makefile",
+            "GNUmakefile"
+        ],
         "tool": "make",
         "cmd_system": "make -j$(nproc)",
-        "out_dirs": ["build", "bin", "."],
-        "out_exts": [".exe", "", ".so", ".o", ".a"],
-        "specificity": 2
+        "out_dirs": [
+            "build",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".so",
+            ".o",
+            ".a"
+        ],
+        "specificity": 2,
+        "runtime_deps": [
+            {
+                "pkg": "SDL2",
+                "apt": "libsdl2-dev",
+                "pacman": "sdl2",
+                "dnf": "SDL2-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "SDL2_mixer",
+                "apt": "libsdl2-mixer-dev",
+                "pacman": "sdl2_mixer",
+                "dnf": "SDL2_mixer-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "SDL2_image",
+                "apt": "libsdl2-image-dev",
+                "pacman": "sdl2_image",
+                "dnf": "SDL2_image-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "SDL2_ttf",
+                "apt": "libsdl2-ttf-dev",
+                "pacman": "sdl2_ttf",
+                "dnf": "SDL2_ttf-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenSSL",
+                "apt": "libssl-dev",
+                "pacman": "openssl",
+                "dnf": "openssl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "ncurses",
+                "apt": "libncurses5-dev",
+                "pacman": "ncurses",
+                "dnf": "ncurses-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "ALSA",
+                "apt": "libasound2-dev",
+                "pacman": "alsa-lib",
+                "dnf": "alsa-lib-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PulseAudio",
+                "apt": "libpulse-dev",
+                "pacman": "pulseaudio",
+                "dnf": "pulseaudio-libs-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "C++ (Meson)",
-        "detect": ["meson.build"],
+        "detect": [
+            "meson.build"
+        ],
         "tool": "meson",
         "cmd_system": "meson setup build && meson compile -C build",
-        "out_dirs": ["build", "bin"],
-        "out_exts": [".exe", "", ".so"],
-        "specificity": 3
+        "out_dirs": [
+            "build",
+            "bin"
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".so"
+        ],
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "SDL2",
+                "apt": "libsdl2-dev",
+                "pacman": "sdl2",
+                "dnf": "SDL2-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "GLib",
+                "apt": "libglib2.0-dev",
+                "pacman": "glib2",
+                "dnf": "glib2-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "GTK4",
+                "apt": "libgtk-4-dev",
+                "pacman": "gtk4",
+                "dnf": "gtk4-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "C++ (Bazel)",
-        "detect": ["BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel"],
+        "detect": [
+            "BUILD",
+            "BUILD.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel"
+        ],
         "tool": "bazel",
         "cmd_system": "bazel build //...",
-        "out_dirs": ["bazel-bin", "bazel-out"],
-        "out_exts": [".exe", "", ".so", ".dll"],
-        "specificity": 3
+        "out_dirs": [
+            "bazel-bin",
+            "bazel-out"
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".so",
+            ".dll"
+        ],
+        "specificity": 3,
+        "runtime_deps": []
     },
     {
         "name": "C# (.NET Core / SDK)",
-        "detect": ["*.sln", "*.csproj"],
+        "detect": [
+            "*.sln",
+            "*.csproj"
+        ],
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
-        "out_dirs": ["dist", "bin/Release", "bin/x64/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"],
+        "out_dirs": [
+            "dist",
+            "bin/Release",
+            "bin/x64/Release"
+        ],
+        "out_exts": [
+            ".exe",
+            ".dll",
+            "*DIR*"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": ".NET Runtime",
                 "apt": "dotnet-runtime-8.0",
                 "pacman": "dotnet-runtime",
-                "dnf": "dotnet-runtime-8.0"
+                "dnf": "dotnet-runtime-8.0",
+                "winget": "Microsoft.DotNet.Runtime.8",
+                "choco": "dotnet-runtime",
+                "scoop": "dotnet-sdk"
+            },
+            {
+                "pkg": "ASP.NET Runtime",
+                "apt": "aspnetcore-runtime-8.0",
+                "pacman": "aspnet-runtime",
+                "dnf": "aspnetcore-runtime-8.0",
+                "winget": "Microsoft.DotNet.AspNetCore.8",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "F# (.NET Core)",
-        "detect": ["*.fsproj"],
+        "detect": [
+            "*.fsproj"
+        ],
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
-        "out_dirs": ["dist", "bin/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"],
+        "out_dirs": [
+            "dist",
+            "bin/Release"
+        ],
+        "out_exts": [
+            ".exe",
+            ".dll",
+            "*DIR*"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": ".NET Runtime",
                 "apt": "dotnet-runtime-8.0",
                 "pacman": "dotnet-runtime",
-                "dnf": "dotnet-runtime-8.0"
+                "dnf": "dotnet-runtime-8.0",
+                "winget": "Microsoft.DotNet.Runtime.8",
+                "choco": "dotnet-runtime",
+                "scoop": "dotnet-sdk"
             }
         ]
     },
     {
         "name": "Visual Basic (.NET)",
-        "detect": ["*.vbproj"],
+        "detect": [
+            "*.vbproj"
+        ],
         "tool": "dotnet",
         "cmd_system": "dotnet publish -c Release -o ./dist",
-        "out_dirs": ["dist", "bin/Release"],
-        "out_exts": [".exe", ".dll", "*DIR*"],
+        "out_dirs": [
+            "dist",
+            "bin/Release"
+        ],
+        "out_exts": [
+            ".exe",
+            ".dll",
+            "*DIR*"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": ".NET Runtime",
                 "apt": "dotnet-runtime-8.0",
                 "pacman": "dotnet-runtime",
-                "dnf": "dotnet-runtime-8.0"
+                "dnf": "dotnet-runtime-8.0",
+                "winget": "Microsoft.DotNet.Runtime.8",
+                "choco": "dotnet-runtime",
+                "scoop": "dotnet-sdk"
             }
         ]
     },
     {
         "name": "Python (PyInstaller / setuptools)",
-        "detect": ["requirements.txt", "setup.py", "pyproject.toml"],
+        "detect": [
+            "requirements.txt",
+            "setup.py",
+            "pyproject.toml"
+        ],
         "tool": "python3",
         "cmd_system": "DYNAMIC_PYTHON_RESOLUTION",
-        "out_dirs": ["dist", "build"],
-        "out_exts": [".exe", ".whl", ".tar.gz", "*DIR*"],
+        "out_dirs": [
+            "dist",
+            "build"
+        ],
+        "out_exts": [
+            ".exe",
+            ".whl",
+            ".tar.gz",
+            "*DIR*"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "PyGObject (GTK)",
                 "apt": "gir1.2-gtk-3.0 python3-gi",
                 "pacman": "python-gobject gtk3",
-                "dnf": "python3-gobject gtk3"
+                "dnf": "python3-gobject gtk3",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             },
             {
                 "pkg": "PyQt5",
                 "apt": "python3-pyqt5",
                 "pacman": "python-pyqt5",
-                "dnf": "python3-qt5"
+                "dnf": "python3-qt5",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             },
             {
                 "pkg": "Tkinter",
                 "apt": "python3-tk",
                 "pacman": "python-tkinter",
-                "dnf": "python3-tkinter"
+                "dnf": "python3-tkinter",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PyQt6",
+                "apt": "python3-pyqt6",
+                "pacman": "python-pyqt6",
+                "dnf": "python3-qt6",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PySide6",
+                "apt": "python3-pyside6",
+                "pacman": "python-pyside6",
+                "dnf": "python3-pyside6",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "wxPython",
+                "apt": "python3-wxgtk4.0",
+                "pacman": "python-wxpython",
+                "dnf": "python3-wxpython",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Pillow",
+                "apt": "python3-pil",
+                "pacman": "python-pillow",
+                "dnf": "python3-pillow",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "NumPy",
+                "apt": "python3-numpy",
+                "pacman": "python-numpy",
+                "dnf": "python3-numpy",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "OpenCV",
+                "apt": "python3-opencv",
+                "pacman": "python-opencv",
+                "dnf": "python3-opencv",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Pygame",
+                "apt": "python3-pygame",
+                "pacman": "python-pygame",
+                "dnf": "python3-pygame",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Matplotlib",
+                "apt": "python3-matplotlib",
+                "pacman": "python-matplotlib",
+                "dnf": "python3-matplotlib",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PyOpenGL",
+                "apt": "python3-opengl",
+                "pacman": "python-pyopengl",
+                "dnf": "python3-pyopengl",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "GStreamer (Python)",
+                "apt": "python3-gst-1.0 gir1.2-gstreamer-1.0",
+                "pacman": "python-gst python-gstreamer",
+                "dnf": "python3-gstreamer1",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "libsass / scss",
+                "apt": "python3-libsass",
+                "pacman": "python-libsass",
+                "dnf": "python3-libsass",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Python (Poetry)",
-        "detect": ["poetry.lock"],
+        "detect": [
+            "poetry.lock"
+        ],
         "tool": "poetry",
         "cmd_system": "poetry install && poetry build",
-        "out_dirs": ["dist"],
-        "out_exts": [".whl", ".tar.gz"],
+        "out_dirs": [
+            "dist"
+        ],
+        "out_exts": [
+            ".whl",
+            ".tar.gz"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "PyGObject (GTK)",
                 "apt": "gir1.2-gtk-3.0 python3-gi",
                 "pacman": "python-gobject gtk3",
-                "dnf": "python3-gobject gtk3"
+                "dnf": "python3-gobject gtk3",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             },
             {
                 "pkg": "PyQt5",
                 "apt": "python3-pyqt5",
                 "pacman": "python-pyqt5",
-                "dnf": "python3-qt5"
+                "dnf": "python3-qt5",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Tkinter",
+                "apt": "python3-tk",
+                "pacman": "python-tkinter",
+                "dnf": "python3-tkinter",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Pygame",
+                "apt": "python3-pygame",
+                "pacman": "python-pygame",
+                "dnf": "python3-pygame",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Python (PDM)",
-        "detect": ["pdm.lock"],
+        "detect": [
+            "pdm.lock"
+        ],
         "tool": "pdm",
         "cmd_system": "pdm install && pdm build",
-        "out_dirs": ["dist"],
-        "out_exts": [".whl", ".tar.gz"],
+        "out_dirs": [
+            "dist"
+        ],
+        "out_exts": [
+            ".whl",
+            ".tar.gz"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "PyGObject (GTK)",
                 "apt": "gir1.2-gtk-3.0 python3-gi",
                 "pacman": "python-gobject gtk3",
-                "dnf": "python3-gobject gtk3"
+                "dnf": "python3-gobject gtk3",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             },
             {
                 "pkg": "PyQt5",
                 "apt": "python3-pyqt5",
                 "pacman": "python-pyqt5",
-                "dnf": "python3-qt5"
+                "dnf": "python3-qt5",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Tkinter",
+                "apt": "python3-tk",
+                "pacman": "python-tkinter",
+                "dnf": "python3-tkinter",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Java (Gradle)",
-        "detect": ["settings.gradle", "build.gradle", "build.gradle.kts"],
+        "detect": [
+            "settings.gradle",
+            "build.gradle",
+            "build.gradle.kts"
+        ],
         "tool": "gradle",
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
-        "out_dirs": ["build/libs", "app/build/libs", "build/distributions"],
-        "out_exts": [".jar", ".war", ".ear", ".zip"],
+        "out_dirs": [
+            "build/libs",
+            "app/build/libs",
+            "build/distributions"
+        ],
+        "out_exts": [
+            ".jar",
+            ".war",
+            ".ear",
+            ".zip"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
+            },
+            {
+                "pkg": "JavaFX (OpenJFX)",
+                "apt": "openjfx",
+                "pacman": "java-openjfx",
+                "dnf": "java-latest-openjfx",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Java (Maven)",
-        "detect": ["pom.xml"],
+        "detect": [
+            "pom.xml"
+        ],
         "tool": "mvn",
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
-        "out_dirs": ["target", "build"],
-        "out_exts": [".jar", ".war", ".ear"],
+        "out_dirs": [
+            "target",
+            "build"
+        ],
+        "out_exts": [
+            ".jar",
+            ".war",
+            ".ear"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
+            },
+            {
+                "pkg": "JavaFX (OpenJFX)",
+                "apt": "openjfx",
+                "pacman": "java-openjfx",
+                "dnf": "java-latest-openjfx",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Java (Ant)",
-        "detect": ["build.xml"],
+        "detect": [
+            "build.xml"
+        ],
         "tool": "ant",
         "cmd_system": "ant compile jar",
-        "out_dirs": ["dist", "build", "out"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Kotlin (Gradle)",
-        "detect": ["build.gradle.kts", "settings.gradle.kts"],
+        "detect": [
+            "build.gradle.kts",
+            "settings.gradle.kts"
+        ],
         "tool": "gradle",
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
-        "out_dirs": ["build/libs", "app/build/outputs"],
-        "out_exts": [".jar", ".apk", ".aab"],
+        "out_dirs": [
+            "build/libs",
+            "app/build/outputs"
+        ],
+        "out_exts": [
+            ".jar",
+            ".apk",
+            ".aab"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Minecraft Mod (Fabric/Forge/Quilt)",
-        "detect": ["fabric.mod.json", "quilt.mod.json", "mods.toml", "neoforge.mods.toml"],
+        "detect": [
+            "fabric.mod.json",
+            "quilt.mod.json",
+            "mods.toml",
+            "neoforge.mods.toml"
+        ],
         "tool": "gradle",
         "wrapper": "gradlew",
         "cmd_system": "gradle assemble",
-        "out_dirs": ["build/libs", "build/distributions"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "build/libs",
+            "build/distributions"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Minecraft Plugin (Bukkit/Paper)",
-        "detect": ["plugin.yml"],
+        "detect": [
+            "plugin.yml"
+        ],
         "tool": "mvn",
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
-        "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "target",
+            "build/libs"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Minecraft Plugin (BungeeCord)",
-        "detect": ["bungee.yml"],
+        "detect": [
+            "bungee.yml"
+        ],
         "tool": "mvn",
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
-        "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "target",
+            "build/libs"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Minecraft Plugin (Velocity)",
-        "detect": ["velocity-plugin.json"],
+        "detect": [
+            "velocity-plugin.json"
+        ],
         "tool": "mvn",
         "wrapper": "mvnw",
         "cmd_system": "mvn clean package -DskipTests",
-        "out_dirs": ["target", "build/libs"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "target",
+            "build/libs"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "FiveM/RedM Script",
-        "detect": ["fxmanifest.lua", "__resource.lua"],
+        "detect": [
+            "fxmanifest.lua",
+            "__resource.lua"
+        ],
         "tool": "lua",
         "cmd_system": "mkdir -p dist && cp -r . dist/ 2>/dev/null; echo 'Script ready'",
-        "out_dirs": ["dist", "."],
-        "out_exts": ["*DIR*", ".zip"],
-        "specificity": 8
+        "out_dirs": [
+            "dist",
+            "."
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".zip"
+        ],
+        "specificity": 8,
+        "runtime_deps": []
     },
     {
         "name": "Terraria Mod (tModLoader)",
-        "detect": ["build.txt"],
+        "detect": [
+            "build.txt"
+        ],
         "tool": "dotnet",
         "cmd_system": "dotnet build -c Release",
-        "out_dirs": ["bin/Release/netstandard2.0", "bin/Release"],
-        "out_exts": [".tmod", ".dll"],
+        "out_dirs": [
+            "bin/Release/netstandard2.0",
+            "bin/Release"
+        ],
+        "out_exts": [
+            ".tmod",
+            ".dll"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": ".NET Runtime",
                 "apt": "dotnet-runtime-8.0",
                 "pacman": "dotnet-runtime",
-                "dnf": "dotnet-runtime-8.0"
+                "dnf": "dotnet-runtime-8.0",
+                "winget": "Microsoft.DotNet.Runtime.8",
+                "choco": "dotnet-runtime",
+                "scoop": "dotnet-sdk"
             }
         ]
     },
     {
         "name": "Luanti Mod (formerly Minetest)",
-        "detect": ["mod.conf"],
+        "detect": [
+            "mod.conf"
+        ],
         "tool": "lua",
         "cmd_system": "echo 'No build step needed'",
-        "out_dirs": ["."],
-        "out_exts": ["*DIR*"],
-        "specificity": 8
+        "out_dirs": [
+            "."
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
+        "specificity": 8,
+        "runtime_deps": []
     },
     {
         "name": "Godot Game",
-        "detect": ["project.godot"],
+        "detect": [
+            "project.godot"
+        ],
         "tool": "godot",
         "cmd_system": "godot --headless --export-release 'Linux/X11' 2>/dev/null || echo 'Export preset not configured; use Godot editor'",
-        "out_dirs": ["build", "dist", "exports"],
-        "out_exts": [".exe", ".pck", ".apk", ".x86_64"],
+        "out_dirs": [
+            "build",
+            "dist",
+            "exports"
+        ],
+        "out_exts": [
+            ".exe",
+            ".pck",
+            ".apk",
+            ".x86_64"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Godot Runtime",
                 "apt": "godot godot3",
                 "pacman": "godot",
-                "dnf": "godot"
+                "dnf": "godot",
+                "winget": "GodotGodot.Godot",
+                "choco": "godot",
+                "scoop": "godot"
+            },
+            {
+                "pkg": "Godot Export Templates",
+                "apt": "godot3",
+                "pacman": "godot-export-templates",
+                "dnf": "godot-export-templates",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "World of Warcraft Addon",
-        "detect": ["*.toc"],
+        "detect": [
+            "*.toc"
+        ],
         "tool": "wow",
         "cmd_system": "echo 'No build step needed'",
-        "out_dirs": ["."],
-        "out_exts": ["*DIR*"],
-        "specificity": 8
+        "out_dirs": [
+            "."
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
+        "specificity": 8,
+        "runtime_deps": []
     },
     {
         "name": "Android (Gradle)",
-        "detect": ["AndroidManifest.xml"],
+        "detect": [
+            "AndroidManifest.xml"
+        ],
         "tool": "gradle",
         "wrapper": "gradlew",
         "cmd_system": "gradle assembleRelease",
-        "out_dirs": ["app/build/outputs/apk", "app/build/outputs/bundle"],
-        "out_exts": [".apk", ".aab"],
+        "out_dirs": [
+            "app/build/outputs/apk",
+            "app/build/outputs/bundle"
+        ],
+        "out_exts": [
+            ".apk",
+            ".aab"
+        ],
         "specificity": 8,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Scala (SBT)",
-        "detect": ["build.sbt"],
+        "detect": [
+            "build.sbt"
+        ],
         "tool": "sbt",
         "cmd_system": "sbt assembly",
-        "out_dirs": ["target/scala-2.13", "target/scala-3"],
-        "out_exts": [".jar"],
+        "out_dirs": [
+            "target/scala-2.13",
+            "target/scala-3"
+        ],
+        "out_exts": [
+            ".jar"
+        ],
         "specificity": 3,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
                 "apt": "default-jre",
                 "pacman": "jre-openjdk",
-                "dnf": "java-latest-openjdk"
+                "dnf": "java-latest-openjdk",
+                "winget": "Microsoft.OpenJDK.17",
+                "choco": "openjdk",
+                "scoop": "openjdk"
             }
         ]
     },
     {
         "name": "Node.js (PNPM)",
-        "detect": ["pnpm-lock.yaml"],
+        "detect": [
+            "pnpm-lock.yaml"
+        ],
         "tool": "pnpm",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
-        "out_dirs": ["dist", "build", "out", "release", "out/main", ".next", "public"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out",
+            "release",
+            "out/main",
+            ".next",
+            "public"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".asar",
+            ".deb",
+            ".exe",
+            ".js"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Node.js",
                 "apt": "nodejs",
                 "pacman": "nodejs",
-                "dnf": "nodejs"
+                "dnf": "nodejs",
+                "winget": "OpenJS.NodeJS.LTS",
+                "choco": "nodejs",
+                "scoop": "nodejs"
             }
         ]
     },
     {
         "name": "Node.js (Yarn)",
-        "detect": ["yarn.lock"],
+        "detect": [
+            "yarn.lock"
+        ],
         "tool": "yarn",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
-        "out_dirs": ["dist", "build", "out", "release", ".next"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out",
+            "release",
+            ".next"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".asar",
+            ".deb",
+            ".exe",
+            ".js"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Node.js",
                 "apt": "nodejs",
                 "pacman": "nodejs",
-                "dnf": "nodejs"
+                "dnf": "nodejs",
+                "winget": "OpenJS.NodeJS.LTS",
+                "choco": "nodejs",
+                "scoop": "nodejs"
             }
         ]
     },
     {
         "name": "Node.js (NPM)",
-        "detect": ["package.json"],
+        "detect": [
+            "package.json"
+        ],
         "tool": "npm",
         "cmd_system": "DYNAMIC_JS_RESOLUTION",
-        "out_dirs": ["dist", "build", "out", "release"],
-        "out_exts": ["*DIR*", ".asar", ".deb", ".exe", ".js"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out",
+            "release"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".asar",
+            ".deb",
+            ".exe",
+            ".js"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Node.js",
                 "apt": "nodejs",
                 "pacman": "nodejs",
-                "dnf": "nodejs"
+                "dnf": "nodejs",
+                "winget": "OpenJS.NodeJS.LTS",
+                "choco": "nodejs",
+                "scoop": "nodejs"
             }
         ]
     },
     {
         "name": "Node.js (Bun)",
-        "detect": ["bun.lockb", "bun.lock"],
+        "detect": [
+            "bun.lockb",
+            "bun.lock"
+        ],
         "tool": "bun",
         "cmd_system": "bun install && bun run build",
-        "out_dirs": ["dist", "build", "out"],
-        "out_exts": ["*DIR*", ".js"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".js"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Node.js",
                 "apt": "nodejs",
                 "pacman": "nodejs",
-                "dnf": "nodejs"
+                "dnf": "nodejs",
+                "winget": "OpenJS.NodeJS.LTS",
+                "choco": "nodejs",
+                "scoop": "nodejs"
             }
         ]
     },
     {
         "name": "Deno",
-        "detect": ["deno.json", "deno.jsonc"],
+        "detect": [
+            "deno.json",
+            "deno.jsonc"
+        ],
         "tool": "deno",
         "cmd_system": "deno task build",
-        "out_dirs": ["dist", "build", "out"],
-        "out_exts": [".exe", "", ".js"],
+        "out_dirs": [
+            "dist",
+            "build",
+            "out"
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".js"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Deno Runtime",
                 "apt": "deno",
                 "pacman": "deno",
-                "dnf": "deno"
+                "dnf": "deno",
+                "winget": "DenoLand.Deno",
+                "choco": "deno",
+                "scoop": "deno"
             }
         ]
     },
     {
         "name": "Go (Modules)",
-        "detect": ["go.mod"],
+        "detect": [
+            "go.mod"
+        ],
         "tool": "go",
         "cmd_system": "DYNAMIC_GO_RESOLUTION",
-        "out_dirs": ["build_output", "bin", "dist", "."],
-        "out_exts": [".exe", "", ".bin"],
-        "specificity": 10
+        "out_dirs": [
+            "build_output",
+            "bin",
+            "dist",
+            "."
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".bin"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Rust (Cargo)",
-        "detect": ["Cargo.toml"],
+        "detect": [
+            "Cargo.toml"
+        ],
         "tool": "cargo",
         "cmd_system": "cargo build --release --workspace",
-        "out_dirs": ["target/release", "target/release/deps", "dist"],
-        "out_exts": [".exe", "", ".so", ".dll", ".rlib"],
-        "specificity": 10
+        "out_dirs": [
+            "target/release",
+            "target/release/deps",
+            "dist"
+        ],
+        "out_exts": [
+            ".exe",
+            "",
+            ".so",
+            ".dll",
+            ".rlib"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Rust (Trunk / WASM)",
-        "detect": ["Trunk.toml"],
+        "detect": [
+            "Trunk.toml"
+        ],
         "tool": "trunk",
         "cmd_system": "trunk build --release",
-        "out_dirs": ["dist"],
-        "out_exts": ["*DIR*", ".wasm", ".js"],
-        "specificity": 10
+        "out_dirs": [
+            "dist"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".wasm",
+            ".js"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Swift (Swift Package Manager)",
-        "detect": ["Package.swift"],
+        "detect": [
+            "Package.swift"
+        ],
         "tool": "swift",
         "cmd_system": "swift build -c release",
-        "out_dirs": [".build/release", "build"],
-        "out_exts": ["", ".dylib", ".framework"],
-        "specificity": 10
+        "out_dirs": [
+            ".build/release",
+            "build"
+        ],
+        "out_exts": [
+            "",
+            ".dylib",
+            ".framework"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Xcode (iOS / macOS)",
-        "detect": ["*.xcodeproj", "*.xcworkspace"],
+        "detect": [
+            "*.xcodeproj",
+            "*.xcworkspace"
+        ],
         "tool": "xcodebuild",
         "cmd_system": "xcodebuild -scheme Release -configuration Release build",
-        "out_dirs": ["build/Release", "DerivedData"],
-        "out_exts": [".app", ".ipa", ".framework"],
-        "specificity": 3
+        "out_dirs": [
+            "build/Release",
+            "DerivedData"
+        ],
+        "out_exts": [
+            ".app",
+            ".ipa",
+            ".framework"
+        ],
+        "specificity": 3,
+        "runtime_deps": []
     },
     {
         "name": "Ruby (Gems / Bundler)",
-        "detect": ["Gemfile"],
+        "detect": [
+            "Gemfile"
+        ],
         "tool": "bundle",
         "cmd_system": "bundle install --standalone",
-        "out_dirs": ["bundle", "."],
-        "out_exts": ["*DIR*", ".gem"],
+        "out_dirs": [
+            "bundle",
+            "."
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".gem"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "Ruby Runtime",
                 "apt": "ruby ruby-dev",
                 "pacman": "ruby",
-                "dnf": "ruby ruby-devel"
+                "dnf": "ruby ruby-devel",
+                "winget": "RubyInstallerTeam.Ruby.3.2",
+                "choco": "ruby",
+                "scoop": "ruby"
+            },
+            {
+                "pkg": "Ruby Bundler",
+                "apt": "bundler",
+                "pacman": "ruby-bundler",
+                "dnf": "rubygem-bundler",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Ruby (Rake)",
-        "detect": ["Rakefile"],
+        "detect": [
+            "Rakefile"
+        ],
         "tool": "rake",
         "cmd_system": "bundle exec rake build",
-        "out_dirs": ["pkg", "build", "dist"],
-        "out_exts": [".gem", "*DIR*"],
-        "specificity": 2
+        "out_dirs": [
+            "pkg",
+            "build",
+            "dist"
+        ],
+        "out_exts": [
+            ".gem",
+            "*DIR*"
+        ],
+        "specificity": 2,
+        "runtime_deps": []
     },
     {
         "name": "PHP (Composer)",
-        "detect": ["composer.json"],
+        "detect": [
+            "composer.json"
+        ],
         "tool": "composer",
         "cmd_system": "composer install --no-dev --optimize-autoloader",
-        "out_dirs": ["vendor", "."],
-        "out_exts": ["*DIR*"],
+        "out_dirs": [
+            "vendor",
+            "."
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "PHP Runtime",
                 "apt": "php php-cli php-xml php-mbstring",
                 "pacman": "php",
-                "dnf": "php php-cli php-xml php-mbstring"
+                "dnf": "php php-cli php-xml php-mbstring",
+                "winget": "PHP.PHP.8.3",
+                "choco": "php",
+                "scoop": "php"
+            },
+            {
+                "pkg": "PHP cURL",
+                "apt": "php-curl",
+                "pacman": "php-curl",
+                "dnf": "php-curl",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP MySQL",
+                "apt": "php-mysql",
+                "pacman": "php-pgsql php-sqlite",
+                "dnf": "php-mysqlnd",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP GD",
+                "apt": "php-gd",
+                "pacman": "php-gd",
+                "dnf": "php-gd",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP intl",
+                "apt": "php-intl",
+                "pacman": "php-intl",
+                "dnf": "php-intl",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP bcmath",
+                "apt": "php-bcmath",
+                "pacman": "php-bcmath",
+                "dnf": "php-bcmath",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "PHP (Laravel)",
-        "detect": ["artisan"],
+        "detect": [
+            "artisan"
+        ],
         "tool": "composer",
         "cmd_system": "composer install --no-dev --optimize-autoloader && php artisan optimize",
-        "out_dirs": ["vendor", "public"],
-        "out_exts": ["*DIR*"],
+        "out_dirs": [
+            "vendor",
+            "public"
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
         "specificity": 5,
         "runtime_deps": [
             {
                 "pkg": "PHP Runtime",
                 "apt": "php php-cli php-xml php-mbstring php-curl php-mysql",
                 "pacman": "php php-pgsql php-sqlite",
-                "dnf": "php php-cli php-xml php-mbstring php-curl php-mysqlnd"
+                "dnf": "php php-cli php-xml php-mbstring php-curl php-mysqlnd",
+                "winget": "PHP.PHP.8.3",
+                "choco": "php",
+                "scoop": "php"
+            },
+            {
+                "pkg": "PHP GD",
+                "apt": "php-gd",
+                "pacman": "php-gd",
+                "dnf": "php-gd",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP intl",
+                "apt": "php-intl",
+                "pacman": "php-intl",
+                "dnf": "php-intl",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "PHP bcmath",
+                "apt": "php-bcmath",
+                "pacman": "php-bcmath",
+                "dnf": "php-bcmath",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Composer",
+                "apt": "composer",
+                "pacman": "composer",
+                "dnf": "composer",
+                "winget": "Composer.Composer",
+                "choco": "composer",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Elixir (Mix)",
-        "detect": ["mix.exs"],
+        "detect": [
+            "mix.exs"
+        ],
         "tool": "mix",
         "cmd_system": "mix deps.get && mix release",
-        "out_dirs": ["_build/prod/rel", "_build/prod"],
-        "out_exts": ["*DIR*", ""],
+        "out_dirs": [
+            "_build/prod/rel",
+            "_build/prod"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ""
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Erlang Runtime",
                 "apt": "erlang-base erlang-dev",
                 "pacman": "erlang",
-                "dnf": "erlang erlang-devel"
+                "dnf": "erlang erlang-devel",
+                "winget": "Erlang.ErlangOTP",
+                "choco": "erlang",
+                "scoop": "erlang"
             }
         ]
     },
     {
         "name": "Erlang (Rebar3)",
-        "detect": ["rebar.config"],
+        "detect": [
+            "rebar.config"
+        ],
         "tool": "rebar3",
         "cmd_system": "rebar3 release",
-        "out_dirs": ["_build/default/rel"],
-        "out_exts": ["*DIR*"],
-        "specificity": 10
+        "out_dirs": [
+            "_build/default/rel"
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Haskell (Cabal)",
-        "detect": ["*.cabal"],
+        "detect": [
+            "*.cabal"
+        ],
         "tool": "cabal",
         "cmd_system": "cabal build all",
-        "out_dirs": ["dist-newstyle", "dist"],
-        "out_exts": ["", ".exe"],
-        "specificity": 10
+        "out_dirs": [
+            "dist-newstyle",
+            "dist"
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Haskell (Stack)",
-        "detect": ["stack.yaml"],
+        "detect": [
+            "stack.yaml"
+        ],
         "tool": "stack",
         "cmd_system": "stack build",
-        "out_dirs": [".stack-work/dist"],
-        "out_exts": ["", ".exe"],
-        "specificity": 10
+        "out_dirs": [
+            ".stack-work/dist"
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "OCaml (Dune)",
-        "detect": ["dune-project"],
+        "detect": [
+            "dune-project"
+        ],
         "tool": "dune",
         "cmd_system": "opam exec -- dune build @install",
-        "out_dirs": ["_build/default"],
-        "out_exts": ["", ".exe", ".cma", ".cmxa"],
-        "specificity": 10
+        "out_dirs": [
+            "_build/default"
+        ],
+        "out_exts": [
+            "",
+            ".exe",
+            ".cma",
+            ".cmxa"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Dart (Flutter)",
-        "detect": ["pubspec.yaml"],
+        "detect": [
+            "pubspec.yaml"
+        ],
         "tool": "flutter",
         "cmd_system": "DYNAMIC_DART_RESOLUTION",
-        "out_dirs": ["build/linux/x64/release/bundle", "build/web", "build/windows/x64/runner/Release"],
-        "out_exts": ["*DIR*", ".apk", ".aab", ".exe"],
+        "out_dirs": [
+            "build/linux/x64/release/bundle",
+            "build/web",
+            "build/windows/x64/runner/Release"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".apk",
+            ".aab",
+            ".exe"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Flutter Runtime / GTK3",
                 "apt": "flutter libgtk-3-dev",
                 "pacman": "flutter gtk3",
-                "dnf": "flutter gtk3-devel"
+                "dnf": "flutter gtk3-devel",
+                "winget": "Flutter.Flutter",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Clang (Flutter Linux)",
+                "apt": "clang",
+                "pacman": "clang",
+                "dnf": "clang",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Ninja (Flutter)",
+                "apt": "ninja-build",
+                "pacman": "ninja",
+                "dnf": "ninja-build",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
             }
         ]
     },
     {
         "name": "Dart (pub)",
-        "detect": ["pubspec.yaml"],
+        "detect": [
+            "pubspec.yaml"
+        ],
         "tool": "dart",
         "cmd_system": "dart pub get && dart compile exe bin/main.dart -o build/main",
-        "out_dirs": ["build"],
-        "out_exts": ["", ".exe"],
+        "out_dirs": [
+            "build"
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
         "specificity": 10,
         "runtime_deps": [
             {
                 "pkg": "Dart Runtime",
                 "apt": "dart",
                 "pacman": "dart",
-                "dnf": "dart"
+                "dnf": "dart",
+                "winget": "Dart.Dart",
+                "choco": "dart-sdk",
+                "scoop": "dart"
             }
         ]
     },
     {
         "name": "Nim (nimble)",
-        "detect": ["*.nimble"],
+        "detect": [
+            "*.nimble"
+        ],
         "tool": "nimble",
         "cmd_system": "nimble build -d:release",
-        "out_dirs": ["bin", "."],
-        "out_exts": ["", ".exe"],
-        "specificity": 10
+        "out_dirs": [
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Zig",
-        "detect": ["build.zig"],
+        "detect": [
+            "build.zig"
+        ],
         "tool": "zig",
         "cmd_system": "zig build -Doptimize=ReleaseFast",
-        "out_dirs": ["zig-out/bin", "zig-out/lib"],
-        "out_exts": ["", ".exe", ".so", ".dll"],
-        "specificity": 10
+        "out_dirs": [
+            "zig-out/bin",
+            "zig-out/lib"
+        ],
+        "out_exts": [
+            "",
+            ".exe",
+            ".so",
+            ".dll"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "D (DUB)",
-        "detect": ["dub.json", "dub.sdl"],
+        "detect": [
+            "dub.json",
+            "dub.sdl"
+        ],
         "tool": "dub",
         "cmd_system": "dub build --build=release",
-        "out_dirs": [".dub/build", "bin", "."],
-        "out_exts": ["", ".exe", ".so"],
-        "specificity": 10
+        "out_dirs": [
+            ".dub/build",
+            "bin",
+            "."
+        ],
+        "out_exts": [
+            "",
+            ".exe",
+            ".so"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Julia",
-        "detect": ["Project.toml", "Manifest.toml"],
+        "detect": [
+            "Project.toml",
+            "Manifest.toml"
+        ],
         "tool": "julia",
         "cmd_system": "julia --project=. -e 'using Pkg; Pkg.instantiate()'",
-        "out_dirs": ["."],
-        "out_exts": ["*DIR*"],
-        "specificity": 10
+        "out_dirs": [
+            "."
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "R (renv / DESCRIPTION)",
-        "detect": ["DESCRIPTION", "renv.lock"],
+        "detect": [
+            "DESCRIPTION",
+            "renv.lock"
+        ],
         "tool": "Rscript",
         "cmd_system": "Rscript -e 'renv::restore()'",
-        "out_dirs": ["renv", "."],
-        "out_exts": ["*DIR*"],
-        "specificity": 10
+        "out_dirs": [
+            "renv",
+            "."
+        ],
+        "out_exts": [
+            "*DIR*"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Fortran (CMake / Make)",
-        "detect": ["CMakeLists.txt"],
+        "detect": [
+            "CMakeLists.txt"
+        ],
         "tool": "gfortran",
         "cmd_system": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)",
-        "out_dirs": ["build", "bin"],
-        "out_exts": ["", ".exe", ".so"],
-        "specificity": 3
+        "out_dirs": [
+            "build",
+            "bin"
+        ],
+        "out_exts": [
+            "",
+            ".exe",
+            ".so"
+        ],
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "OpenMPI",
+                "apt": "libopenmpi-dev",
+                "pacman": "openmpi",
+                "dnf": "openmpi-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "BLAS/LAPACK",
+                "apt": "libblas-dev liblapack-dev",
+                "pacman": "blas lapack",
+                "dnf": "blas-devel lapack-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "COBOL (GnuCOBOL)",
-        "detect": ["*.cob", "*.cbl"],
+        "detect": [
+            "*.cob",
+            "*.cbl"
+        ],
         "tool": "cobc",
         "cmd_system": "find . -name '*.cob' -o -name '*.cbl' | xargs cobc -x -o build/program",
-        "out_dirs": ["build", "."],
-        "out_exts": ["", ".exe"],
-        "specificity": 10
+        "out_dirs": [
+            "build",
+            "."
+        ],
+        "out_exts": [
+            "",
+            ".exe"
+        ],
+        "specificity": 10,
+        "runtime_deps": []
     },
     {
         "name": "Lua (LuaRocks)",
-        "detect": ["*.rockspec"],
+        "detect": [
+            "*.rockspec"
+        ],
         "tool": "luarocks",
         "cmd_system": "luarocks make",
-        "out_dirs": ["."],
-        "out_exts": ["*DIR*", ".rock"],
-        "specificity": 10
+        "out_dirs": [
+            "."
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".rock"
+        ],
+        "specificity": 10,
+        "runtime_deps": [
+            {
+                "pkg": "LuaJIT",
+                "apt": "luajit",
+                "pacman": "luajit",
+                "dnf": "luajit-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "LuaSocket",
+                "apt": "lua-socket",
+                "pacman": "lua-socket",
+                "dnf": "lua-socket",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "Perl (CPAN / Makefile.PL)",
-        "detect": ["Makefile.PL", "Build.PL"],
+        "detect": [
+            "Makefile.PL",
+            "Build.PL"
+        ],
         "tool": "perl",
         "cmd_system": "perl Makefile.PL && make",
-        "out_dirs": ["blib", "build"],
-        "out_exts": ["*DIR*", ".pm"],
-        "specificity": 3
+        "out_dirs": [
+            "blib",
+            "build"
+        ],
+        "out_exts": [
+            "*DIR*",
+            ".pm"
+        ],
+        "specificity": 3,
+        "runtime_deps": [
+            {
+                "pkg": "Perl",
+                "apt": "perl perl-dev",
+                "pacman": "perl",
+                "dnf": "perl perl-devel",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            },
+            {
+                "pkg": "Perl XML::Parser",
+                "apt": "libxml-parser-perl",
+                "pacman": "perl-xml-parser",
+                "dnf": "perl-XML-Parser",
+                "winget": "",
+                "choco": "",
+                "scoop": ""
+            }
+        ]
     },
     {
         "name": "WebAssembly (Emscripten)",
-        "detect": ["Makefile", "CMakeLists.txt"],
+        "detect": [
+            "Makefile",
+            "CMakeLists.txt"
+        ],
         "tool": "emcc",
         "cmd_system": "emmake make -j$(nproc)",
-        "out_dirs": ["build", "dist", "out"],
-        "out_exts": [".wasm", ".js", ".html"],
-        "specificity": 3
+        "out_dirs": [
+            "build",
+            "dist",
+            "out"
+        ],
+        "out_exts": [
+            ".wasm",
+            ".js",
+            ".html"
+        ],
+        "specificity": 3,
+        "runtime_deps": []
     }
 ]

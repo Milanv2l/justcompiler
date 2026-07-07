@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.3.8"
+VERSION = "1.3.9"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -463,6 +463,65 @@ def handle_settings(selected_lang):
         else:
             return selected_lang
 
+def _detect_package_manager():
+    """Return (pkg_manager_family, install_cmd_template) or None."""
+    if platform.system() == "Windows":
+        for pm, check in [("winget", "winget"), ("choco", "choco"), ("scoop", "scoop")]:
+            if shutil.which(check):
+                return pm, "winget"
+        return None, None
+    # Linux
+    if shutil.which("apt"):
+        return "apt", "apt"
+    if shutil.which("pacman"):
+        return "pacman", "pacman"
+    if shutil.which("dnf"):
+        return "dnf", "dnf"
+    if shutil.which("zypper"):
+        return "zypper", "zypper"
+    return None, None
+
+def _build_install_cmd(deps: set, pm_family: str) -> list | None:
+    """Build a single install command for all deps under this package manager."""
+    pkgs = []
+    use_sudo = platform.system() != "Windows"
+    for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
+        if pm_family == "apt" and apt:
+            pkgs.extend(apt.split())
+        elif pm_family == "pacman" and pacman:
+            pkgs.extend(pacman.split())
+        elif pm_family == "dnf" and dnf:
+            pkgs.extend(dnf.split())
+        elif pm_family == "zypper" and dnf:  # zypper uses similar names
+            pkgs.extend(dnf.split())
+        elif pm_family == "winget" and winget:
+            pkgs.extend(winget.split())
+        elif pm_family == "choco" and choco:
+            pkgs.extend(choco.split())
+        elif pm_family == "scoop" and scoop:
+            pkgs.extend(scoop.split())
+    if not pkgs:
+        return None
+    if pm_family == "apt":
+        cmd = ["apt", "install", "-y"] + pkgs
+    elif pm_family == "pacman":
+        cmd = ["pacman", "-S", "--noconfirm"] + pkgs
+    elif pm_family == "dnf":
+        cmd = ["dnf", "install", "-y"] + pkgs
+    elif pm_family == "zypper":
+        cmd = ["zypper", "install", "-y"] + pkgs
+    elif pm_family == "winget":
+        cmd = ["winget", "install", "--accept-package-agreements"] + pkgs
+    elif pm_family == "choco":
+        cmd = ["choco", "install", "-y"] + pkgs
+    elif pm_family == "scoop":
+        cmd = ["scoop", "install"] + pkgs
+    else:
+        return None
+    if use_sudo:
+        cmd = ["sudo"] + cmd
+    return cmd
+
 def _show_runtime_hints(build_folder: Path):
     manifest_file = build_folder / "build_manifest.json"
     try:
@@ -472,19 +531,47 @@ def _show_runtime_hints(build_folder: Path):
     deps = set()
     for proj in manifest.get("projects", []):
         for dep in proj.get("runtime_deps", []):
-            deps.add((dep["pkg"], dep.get("apt", ""), dep.get("pacman", ""), dep.get("dnf", "")))
+            deps.add((
+                dep["pkg"],
+                dep.get("apt", ""),
+                dep.get("pacman", ""),
+                dep.get("dnf", ""),
+                dep.get("winget", ""),
+                dep.get("choco", ""),
+                dep.get("scoop", ""),
+            ))
     if not deps:
         return
+    pm_family, _ = _detect_package_manager()
     print(f"\n{UI.YELLOW}⚠ Possible missing runtime dependencies:{UI.RESET}")
-    for pkg, apt, pacman, dnf in sorted(deps):
-        if pkg:
-            print(f"  {UI.CYAN}• {pkg}{UI.RESET}")
-            if pacman:
-                print(f"    {UI.GREEN}Arch:{UI.RESET} sudo pacman -S {pacman}")
-            if apt:
-                print(f"    {UI.GREEN}Debian/Ubuntu:{UI.RESET} sudo apt install {apt}")
-            if dnf:
-                print(f"    {UI.GREEN}Fedora:{UI.RESET} sudo dnf install {dnf}")
+    for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
+        if not pkg:
+            continue
+        print(f"  {UI.CYAN}• {pkg}{UI.RESET}")
+        if apt:
+            print(f"    {UI.GREEN}Debian/Ubuntu:{UI.RESET} sudo apt install {apt}")
+        if pacman:
+            print(f"    {UI.GREEN}Arch:{UI.RESET} sudo pacman -S {pacman}")
+        if dnf:
+            print(f"    {UI.GREEN}Fedora:{UI.RESET} sudo dnf install {dnf}")
+        if winget:
+            print(f"    {UI.GREEN}Windows (winget):{UI.RESET} winget install {winget}")
+        if choco:
+            print(f"    {UI.GREEN}Windows (choco):{UI.RESET} choco install {choco}")
+        if scoop:
+            print(f"    {UI.GREEN}Windows (scoop):{UI.RESET} scoop install {scoop}")
+    # Auto-install prompt
+    if pm_family:
+        print()
+        ans = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}").strip().lower()
+        if ans in ('y', 'yes', 'j', 'ja'):
+            cmd = _build_install_cmd(deps, pm_family)
+            if cmd:
+                print(f"{UI.YELLOW}Running: {' '.join(cmd)}{UI.RESET}")
+                try:
+                    subprocess.run(cmd)
+                except Exception as e:
+                    print(f"{UI.RED}Install failed: {e}{UI.RESET}")
 
 def _auto_pick_artifact(artifacts: list) -> tuple | None:
     scores = []
