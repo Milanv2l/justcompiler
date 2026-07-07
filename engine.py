@@ -151,8 +151,9 @@ class Engine:
             if "mvn" in tool: return f"\"{wrap}\" clean package -DskipTests"
 
         if cmd == "DYNAMIC_JS_RESOLUTION":
-            install = f"{tool} install --no-frozen-lockfile" if tool == "pnpm" else "npm install --legacy-peer-deps"
-            return f"{install} && npm run build" if (root / "package.json").exists() else install
+            install_cmd = f"npm install --legacy-peer-deps" if tool != "pnpm" else f"pnpm install --no-frozen-lockfile"
+            build_cmd = f"{tool} run build" if (root / "package.json").exists() else install_cmd
+            return f"{install_cmd} && {build_cmd}"
         elif cmd == "DYNAMIC_GO_RESOLUTION":
             return "go build -o build_output\\ ./..." if sys.platform == "win32" else "go build -o build_output/ ./..."
         elif cmd == "DYNAMIC_PYTHON_RESOLUTION":
