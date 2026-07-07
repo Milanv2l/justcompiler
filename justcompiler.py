@@ -644,7 +644,7 @@ if __name__ == "__main__":
         targets = _scan_targets(target)
         target_filter = _auto_select_target(target, targets)
         if target_filter:
-            UI.log(UI.GREEN, f"{t('build_selected')} {target_filter}")
+            UI.log(UI.GREEN, t('build_selected'), target_filter)
         else:
             UI.log(UI.YELLOW, t('build_auto'), "")
 
