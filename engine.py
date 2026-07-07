@@ -142,6 +142,20 @@ class Engine:
             path = path.parent
         return None
 
+    def _find_workspace_root(self, root: Path) -> Path | None:
+        for p in [root] + list(root.parents):
+            if p.joinpath("pnpm-workspace.yaml").exists():
+                return p
+            try:
+                pkg = json.loads(p.joinpath("package.json").read_text())
+                if "workspaces" in pkg:
+                    return p
+            except Exception:
+                pass
+            if p == self.src_root:
+                break
+        return None
+
     def build_cmd(self, root, plugin, attempt):
         cmd, tool = plugin.get("cmd_system", ""), plugin["tool"]
         wrap = self.find_wrapper(root, plugin.get("wrapper", ""))
@@ -152,7 +166,19 @@ class Engine:
 
         if cmd == "DYNAMIC_JS_RESOLUTION":
             install_cmd = f"npm install --legacy-peer-deps" if tool != "pnpm" else f"pnpm install --no-frozen-lockfile"
-            build_cmd = f"{tool} run build" if (root / "package.json").exists() else install_cmd
+            ws = self._find_workspace_root(root)
+            if ws:
+                if tool == "pnpm":
+                    install_cmd = "pnpm install --no-frozen-lockfile"
+                    build_cmd = "pnpm run -r build"
+                elif tool == "yarn":
+                    install_cmd = "yarn install --frozen-lockfile"
+                    build_cmd = "yarn workspaces run build"
+                else:
+                    install_cmd = "npm install --legacy-peer-deps"
+                    build_cmd = "npm run build --workspaces"
+            else:
+                build_cmd = f"{tool} run build" if (root / "package.json").exists() else install_cmd
             return f"{install_cmd} && {build_cmd}"
         elif cmd == "DYNAMIC_GO_RESOLUTION":
             return "go build -o build_output\\ ./..." if sys.platform == "win32" else "go build -o build_output/ ./..."
