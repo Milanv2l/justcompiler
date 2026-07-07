@@ -70,16 +70,20 @@ class Engine:
                     env["PATH"] = f"{path}/bin:{env.get('PATH', '')}"
                     break
 
-        errors, kw = [], ["error:", "failed", "exception", "not supported", "syntaxerror", "cannot find"]
+        kw, all_output, errors = ["error:", "failed", "exception", "not supported", "syntaxerror", "cannot find"], [], []
         with open(self.log_file, "a", encoding="utf-8") as log:
             log.write(f"\n--- RUN: {cmd} ---\n")
             proc = subprocess.Popen(cmd, shell=True, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
             for line in proc.stdout:
                 log.write(line)
                 log.flush()
+                print(line, end="", flush=True)
+                all_output.append(line.rstrip())
                 if any(k in line.lower() for k in kw) and len(errors) < 30:
                     if line.strip() and line.strip() not in errors: errors.append(line.strip())
             proc.wait()
+        if proc.returncode != 0 and not errors:
+            errors = all_output[-20:]
         return proc.returncode == 0, errors
 
     def test_cmd(self, root, plugin):
@@ -439,9 +443,8 @@ class Engine:
                     attempt -= 1
                     continue
 
-                if errs:
-                    print(f"   {UI.YELLOW}{t('err_output_title')}{UI.RESET}")
-                    for e in errs: print(f"     {UI.RED}➔ {e}{UI.RESET}")
+                print(f"   {UI.YELLOW}{t('err_output_title')}{UI.RESET}")
+                for e in errs: print(f"     {UI.RED}➔ {e}{UI.RESET}")
             UI.log(UI.YELLOW, t('act_retry'), t('fallback_msg'))
 
         UI.log(UI.RED, t('act_fail'), t('compile_fail'))
