@@ -415,7 +415,7 @@ if __name__ == "__main__":
                     version_to_use = local_tags[v_idx - 2]
 
         base_image = load_config().get("base_image", "ubuntu:24.04")
-        docker_manager.bootstrap_sandbox(
+        success = docker_manager.bootstrap_sandbox(
             target_path=target,
             artifacts_path=artifacts_folder,
             run_tests=tests,
@@ -427,4 +427,13 @@ if __name__ == "__main__":
         )
 
         sys.stdout.flush()
-        input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{UI.DIM}Press Enter to return to dashboard...{UI.RESET}")
+        if success and any(artifacts_folder.iterdir()):
+            ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
+            if ans in ['j', 'ja', 'y', 'yes']:
+                if platform.system() == "Windows":
+                    subprocess.Popen(["explorer", str(artifacts_folder.resolve())])
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["open", str(artifacts_folder.resolve())])
+                else:
+                    subprocess.Popen(["xdg-open", str(artifacts_folder.resolve())])
+        input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{UI.DIM}{t('press_enter')}{UI.RESET}")

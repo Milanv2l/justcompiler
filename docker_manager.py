@@ -161,16 +161,19 @@ exec python3 /workspace/engine.py --src /workspace/build_src --out /workspace/ar
         if result.returncode != 0:
             set_status_fn(t('docker_failed_status'))
             UI.error(t('docker_failed_status'))
+            return False
         else:
             set_status_fn(t('docker_success_status'))
             UI.success(t('docker_success_status'))
-            
+
             artifacts_path.mkdir(exist_ok=True)
             subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                
+            return True
+
     except KeyboardInterrupt:
         set_status_fn(t('docker_abort_status'))
         UI.warn("Build aborted by user. Cleaning up sandbox...")
+        return False
     finally:
         set_status_fn(t('docker_cleanup_status'))
         subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
