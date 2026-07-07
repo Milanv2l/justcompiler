@@ -170,6 +170,37 @@ def _classify_platform(dirpath: str, plugin_name: str, tool: str) -> str:
         return "Swift/Xcode App"
     return "Unknown"
 
+def _auto_select_target(project_root: Path, targets: list) -> str:
+    if not targets:
+        return ""
+    if len(targets) == 1:
+        return targets[0]["name"]
+    try:
+        pdata = json.loads((Path(__file__).resolve().parent / "plugins.json").read_text())
+    except Exception:
+        return targets[0]["name"]
+    markers = {}
+    for f in project_root.rglob("*"):
+        if not f.is_file():
+            continue
+        for t in targets:
+            plugin = pdata[t["plugin_idx"]]
+            for d in plugin.get("detect", []):
+                if "*" in d:
+                    pat = d.replace("*", "")
+                    if f.name.endswith(pat) or f.name == pat:
+                        markers[t["name"]] = markers.get(t["name"], 0) + 1
+                elif "/" not in d:
+                    if f.name == d:
+                        markers[t["name"]] = markers.get(t["name"], 0) + 2
+                else:
+                    rel = str(f.relative_to(project_root)).replace("\\", "/")
+                    if rel == d:
+                        markers[t["name"]] = markers.get(t["name"], 0) + 3
+    if markers:
+        return max(markers, key=markers.get)
+    return targets[0]["name"]
+
 def _force_update(selected_lang):
     print()
     try:
@@ -586,27 +617,13 @@ if __name__ == "__main__":
             time.sleep(2)
             continue
 
-        # Scan for build targets
+        # Scan and auto-select build target
         set_current_status("Scanning project...")
         show_tui_header()
         targets = _scan_targets(target)
-        target_filter = ""
-        if targets:
-            lines = []
-            for i, tgt in enumerate(targets, 1):
-                tag = f" [{tgt['platform']}]" if tgt['platform'] != "Unknown" else ""
-                lines.append(f" {UI.CYAN}[{i}]{UI.RESET} {tgt['name']}{tag}")
-            lines.append(f" {UI.GREEN}[A]{UI.RESET} {t('build_all')}")
-            UI.draw_panel(t('build_targets_title'), lines, color=UI.CYAN)
-            sys.stdout.flush()
-            sel = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('build_targets_prompt')}{UI.RESET}").strip().upper()
-            if sel.isdigit() and 1 <= int(sel) <= len(targets):
-                target_filter = targets[int(sel) - 1]["name"]
-                UI.log(UI.GREEN, t('build_selected'), target_filter)
-            elif sel == "A":
-                pass
-            else:
-                pass
+        target_filter = _auto_select_target(target, targets)
+        if target_filter:
+            UI.log(UI.GREEN, f"{t('build_selected')} {target_filter}")
         else:
             UI.log(UI.YELLOW, t('build_auto'), "")
 
