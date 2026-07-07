@@ -157,6 +157,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
     subprocess.run(docker_cmd + ["volume", "create", vol_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # Alle cache-mappen worden nu daadwerkelijk gekoppeld aan de container voor optimaal hergebruik
+    subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run_cmd = docker_cmd + [
         "run", "--name", "justcompiler_active_run", "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
