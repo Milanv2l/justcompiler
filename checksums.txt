@@ -1,11 +1,11 @@
-# SHA256 checksums for JustCompiler v1.2.1
+# SHA256 checksums for JustCompiler v1.2.2
 # Regenerate: cd justcompiler && sha256sum core.py docker_manager.py engine.py justcompiler.py plugins.json version.txt Linux/setup.sh Linux/update.sh Linux/uninstall.sh Windows/setup.ps1 Windows/update.ps1 Windows/uninstall.ps1 | sed 's|Linux/||; s|Windows/||'
 90c4ed1c9b212fe7764af8fcbbc38c4857687dccb9b35d5b01a7f435653b1322  core.py
 442fccb05c243b194bde59deae0ecb5956f7a740d10a329a6e75c89c16f3296c  docker_manager.py
 037475af5bb579f98ddacfd99ed902e937e954f6829b806d8cf8e9349d6208e6  engine.py
 ce6c30cb0067bfe58952b8c3f12ba259b5fd9e206b1d52bb9988f6b7087139f8  justcompiler.py
 23179deb28bbbcab5c3d9782d8dd2306e4d214f6b2f6929fc0a982d195546280  plugins.json
-6cf4e084b47f33c9b02ef79279d157833868f8f70514169a768be353ee328fea  version.txt
+c62a5cc61ac4525935753f5ec284c0a052a4b1da4b3a3580dce2b7d77a2154ae  version.txt
 c4dcdf73807c9714cc1393201eb3c4a7a0cf29ef7a6bec5ff7c31d330d267d3f  setup.sh
 4662b1e8cd3d2f27213f1e742add4e61da39d6a64cf2c89a71e94eaadd5f5d89  update.sh
 5d938a19d18aa1397eb5413cbb58780b182953808b45dbcfef45d760bbfb70cf  uninstall.sh
