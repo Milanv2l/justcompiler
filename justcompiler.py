@@ -321,25 +321,64 @@ def handle_settings(selected_lang):
 
 def _detect_artifacts(folder: Path) -> list:
     found = []
+    is_windows = platform.system() == "Windows"
+    is_macos = platform.system() == "Darwin"
+
     for f in folder.iterdir():
         if not f.is_file() or f.stat().st_size == 0:
             continue
+
+        # JAR — cross-platform
+        if f.suffix == ".jar":
+            found.append(("jar", f.name, ["java", "-jar", str(f)]))
+            continue
+
+        # Python — cross-platform
+        if f.suffix == ".py":
+            py_cmd = "python" if is_windows else "python3"
+            found.append(("python", f.name, [py_cmd, str(f)]))
+            continue
+
+        # JavaScript — cross-platform
+        if f.suffix == ".js":
+            found.append(("node", f.name, ["node", str(f)]))
+            continue
+
+        # Windows-specific
+        if is_windows:
+            if f.suffix in (".exe", ".bat", ".cmd"):
+                found.append(("executable", f.name, [str(f)]))
+            continue
+
+        # macOS-specific
+        if is_macos:
+            try:
+                magic = f.read_bytes()[:4]
+            except Exception:
+                magic = b""
+            # Mach-O fat/universal binary
+            if magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
+                found.append(("binary", f.name, [str(f)]))
+            # Mach-O 64-bit
+            elif magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):
+                found.append(("binary", f.name, [str(f)]))
+            # Mach-O 32-bit
+            elif magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe"):
+                found.append(("binary", f.name, [str(f)]))
+            elif f.suffix in (".sh", ".bash"):
+                found.append(("script", f.name, ["bash", str(f)]))
+            continue
+
+        # Linux / generic Unix
         try:
             magic = f.read_bytes()[:4]
         except Exception:
             magic = b""
         if magic == b"\x7fELF":
             found.append(("binary", f.name, [str(f)]))
-        elif f.suffix == ".jar":
-            found.append(("jar", f.name, ["java", "-jar", str(f)]))
-        elif f.suffix == ".exe":
-            found.append(("exe", f.name, [str(f)]))
         elif f.suffix in (".sh", ".bash"):
             found.append(("script", f.name, ["bash", str(f)]))
-        elif f.suffix == ".py":
-            found.append(("python", f.name, ["python3", str(f)]))
-        elif f.suffix == ".js":
-            found.append(("node", f.name, ["node", str(f)]))
+
     return found
 
 if __name__ == "__main__":
@@ -445,7 +484,7 @@ if __name__ == "__main__":
                 if ans.isdigit() and 1 <= int(ans) <= len(artifacts):
                     _, _, cmd = artifacts[int(ans) - 1]
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
-                    subprocess.run(cmd)
+                    subprocess.run(cmd, shell=platform.system() == "Windows")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
             else:
                 ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
