@@ -509,8 +509,20 @@ class Engine:
         t0 = time.time()
         UI.log(UI.BLUE, t('act_scan'), f"{self.src_root.resolve()}")
 
+        ws = self._find_workspace_root(self.src_root)
+        ws_children = set()
+        if ws:
+            for d in ws["root"].iterdir():
+                if d.is_dir() and (d / "package.json").exists():
+                    ws_children.add(str(d.resolve()))
+
         for root, dirs, files in os.walk(str(self.src_root)):
+            root_p = str(Path(root).resolve())
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache"]]
+
+            if ws and root_p in ws_children:
+                continue
+
             for p in self.plugins:
                 if any(f in files for f in p["detect"]) or any(any(f.endswith(d.replace('*', '')) for f in files) for d in p["detect"] if '*' in d):
                     self.process(Path(root), files, p)
