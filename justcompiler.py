@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.2.9"
+VERSION = "1.3.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -228,14 +228,12 @@ def _do_update(ask=True, force=False):
         confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()
         if confirm not in ['j', 'ja', 'y', 'yes']:
             return
-    if not force:
-        set_current_status(f"Downloading v{remote_version}...")
-        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
-        version_label = remote_version
-    else:
+    if force:
         set_current_status(f"Re-downloading v{remote_version}...")
-        base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/main"
-        version_label = remote_version
+    else:
+        set_current_status(f"Downloading v{remote_version}...")
+    base_url = f"https://raw.githubusercontent.com/Milanv2l/justcompiler/v{remote_version}"
+    version_label = remote_version
     temp_dir = current_dir / f".update_{remote_version}"
     temp_dir.mkdir(exist_ok=True)
     try:
