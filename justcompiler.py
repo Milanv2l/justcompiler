@@ -504,9 +504,11 @@ def _detect_artifacts(folder: Path) -> list:
         # Python — cross-platform
         if f.suffix == ".py":
             py_cmd = "python" if is_windows else "python3"
-            # Check if there's a matching source dir
-            cwd = _matching_source_dir(f, source_dirs)
-            found.append(("python", f.name, [py_cmd, str(f)], cwd))
+            src_name, cwd = _matching_source_dir(f, source_dirs)
+            if src_name:
+                found.append(("python", f.name, [py_cmd, src_name], cwd))
+            else:
+                found.append(("python", f.name, [py_cmd, str(f)], None))
             continue
 
         # JavaScript — cross-platform
@@ -544,23 +546,43 @@ def _detect_artifacts(folder: Path) -> list:
         if magic == b"\x7fELF":
             found.append(("binary", f.name, [str(f)], None))
         elif f.suffix in (".sh", ".bash"):
-            cwd = _matching_source_dir(f, source_dirs)
-            found.append(("script", f.name, ["bash", str(f)], cwd))
+            src_name, cwd = _matching_source_dir(f, source_dirs)
+            if src_name:
+                found.append(("script", f.name, ["bash", src_name], cwd))
+            else:
+                found.append(("script", f.name, ["bash", str(f)], None))
         elif f.suffix == ".py":
             py_cmd = "python" if is_windows else "python3"
-            cwd = _matching_source_dir(f, source_dirs)
-            found.append(("python", f.name, [py_cmd, str(f)], cwd))
+            src_name, cwd = _matching_source_dir(f, source_dirs)
+            if src_name:
+                found.append(("python", f.name, [py_cmd, src_name], cwd))
+            else:
+                found.append(("python", f.name, [py_cmd, str(f)], None))
+        elif not f.suffix:
+            try:
+                head = f.read_bytes()[:64]
+                if head.startswith(b'#!'):
+                    interp = "bash" if b"bash" in head[:32] else None
+                    src_name, cwd = _matching_source_dir(f, source_dirs)
+                    if src_name:
+                        found.append(("script", f.name, [interp or "bash", src_name], cwd))
+                    else:
+                        found.append(("script", f.name, [str(f)], None))
+            except Exception:
+                pass
 
     return found
 
-def _matching_source_dir(script_file: Path, source_dirs: list) -> str | None:
-    """Find source dir that matches this script's project prefix."""
+def _matching_source_dir(script_file: Path, source_dirs: list) -> tuple:
+    """Find source dir that matches this script's project prefix.
+    Returns (relative_script_name, cwd) or (None, None)."""
     stem = script_file.name
     for sd in source_dirs:
         prefix = sd.name.replace("_source", "")
-        if stem.startswith(prefix + "_") or stem.startswith(prefix):
-            return str(sd)
-    return None
+        if stem.startswith(prefix + "_"):
+            orig_name = stem[len(prefix) + 1:]
+            return (orig_name, str(sd))
+    return (None, None)
 
 def _classify_jar(path: Path) -> str:
     import zipfile
