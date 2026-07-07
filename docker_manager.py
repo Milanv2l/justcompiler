@@ -7,25 +7,25 @@ import json
 import time
 import hashlib
 import re
-import threading
 from pathlib import Path
 from core import UI, t
 
 def _build_with_spinner(title, cmd_args):
-    """Run a docker build with a progress spinner showing step info."""
+    """Run a docker build with a background spinner (step info shown as available)."""
+    cmd_args = list(cmd_args) + ["--progress=plain"]
     spinner = UI.spinner(title)
     with spinner:
         proc = subprocess.Popen(
             cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1
         )
-        total_steps = 0
         for line in proc.stdout:
             m = re.search(r"\[(\d+)/(\d+)\]", line)
             if m:
-                step, total_steps = int(m.group(1)), int(m.group(2))
-                pct = step / total_steps * 100
-                spinner.set_progress(pct)
+                step, total = int(m.group(1)), int(m.group(2))
+                spinner.set_progress(step / total * 100)
+                status = re.sub(r"^.*?\[(\d+/\d+)\]\s*", "", line).strip()[:50]
+                spinner.text = f"{title}  [{step}/{total}] {status}"
             elif "ERROR" in line or "failed" in line.lower():
                 spinner.fail()
         proc.wait()
