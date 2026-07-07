@@ -519,11 +519,16 @@ class Engine:
                     UI.log(UI.GREEN, "Entry points", f"found {len(scripts)} script(s)")
                     for s in scripts:
                         src = root_candidate / s["name"]
-                        if src.exists():
-                            dest = self.out_root / f"{name}_{s['name']}"
-                            shutil.copy2(src, dest)
-                            s["path"] = str(dest)
-                            UI.log(UI.GREEN, t('act_saved'), f"Script -> {dest.name}")
+                        if not src.exists():
+                            continue
+                        dest = self.out_root / f"{name}_{s['name']}"
+                        shutil.copy2(src, dest)
+                        s["path"] = str(dest)
+                        UI.log(UI.GREEN, t('act_saved'), f"Script -> {dest.name}")
+                    proj_dest = self.out_root / f"{name}_source"
+                    if not proj_dest.exists():
+                        shutil.copytree(root_candidate, proj_dest, ignore=shutil.ignore_patterns('.*', 'node_modules', 'venv', '__pycache__', 'build', 'target', 'dist', 'bin'), dirs_exist_ok=True)
+                        UI.log(UI.GREEN, t('act_saved'), f"Source -> {proj_dest.name}")
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts})
                     self.stats["success"] += 1
                     return

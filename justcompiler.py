@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.3.4"
+VERSION = "1.3.5"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -465,7 +465,7 @@ def handle_settings(selected_lang):
 
 def _auto_pick_artifact(artifacts: list) -> tuple | None:
     scores = []
-    for kind, name, cmd in artifacts:
+    for kind, name, cmd, cwd in artifacts:
         score = 0
         low = name.lower()
         if "-sources" in low or "-javadoc" in low or "-doc" in low:
@@ -478,16 +478,18 @@ def _auto_pick_artifact(artifacts: list) -> tuple | None:
             score += 10
         elif kind == "executable":
             score += 10
-        scores.append((score, kind, name, cmd))
+        scores.append((score, kind, name, cmd, cwd))
     scores.sort(key=lambda x: (-x[0], x[2]))
     if scores and scores[0][0] > -100:
-        return (scores[0][1], scores[0][2], scores[0][3])
+        return (scores[0][1], scores[0][2], scores[0][3], scores[0][4])
     return artifacts[0] if artifacts else None
 
 def _detect_artifacts(folder: Path) -> list:
     found = []
     is_windows = platform.system() == "Windows"
     is_macos = platform.system() == "Darwin"
+
+    source_dirs = [d for d in folder.iterdir() if d.is_dir() and d.name.endswith("_source")]
 
     for f in folder.iterdir():
         if not f.is_file() or f.stat().st_size == 0:
@@ -496,24 +498,26 @@ def _detect_artifacts(folder: Path) -> list:
         # JAR — cross-platform
         if f.suffix == ".jar":
             kind = _classify_jar(f)
-            found.append((kind, f.name, ["java", "-jar", str(f)]))
+            found.append((kind, f.name, ["java", "-jar", str(f)], None))
             continue
 
         # Python — cross-platform
         if f.suffix == ".py":
             py_cmd = "python" if is_windows else "python3"
-            found.append(("python", f.name, [py_cmd, str(f)]))
+            # Check if there's a matching source dir
+            cwd = _matching_source_dir(f, source_dirs)
+            found.append(("python", f.name, [py_cmd, str(f)], cwd))
             continue
 
         # JavaScript — cross-platform
         if f.suffix == ".js":
-            found.append(("node", f.name, ["node", str(f)]))
+            found.append(("node", f.name, ["node", str(f)], None))
             continue
 
         # Windows-specific
         if is_windows:
             if f.suffix in (".exe", ".bat", ".cmd"):
-                found.append(("executable", f.name, [str(f)]))
+                found.append(("executable", f.name, [str(f)], None))
             continue
 
         # macOS-specific
@@ -522,17 +526,14 @@ def _detect_artifacts(folder: Path) -> list:
                 magic = f.read_bytes()[:4]
             except Exception:
                 magic = b""
-            # Mach-O fat/universal binary
             if magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
-                found.append(("binary", f.name, [str(f)]))
-            # Mach-O 64-bit
+                found.append(("binary", f.name, [str(f)], None))
             elif magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):
-                found.append(("binary", f.name, [str(f)]))
-            # Mach-O 32-bit
+                found.append(("binary", f.name, [str(f)], None))
             elif magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe"):
-                found.append(("binary", f.name, [str(f)]))
+                found.append(("binary", f.name, [str(f)], None))
             elif f.suffix in (".sh", ".bash"):
-                found.append(("script", f.name, ["bash", str(f)]))
+                found.append(("script", f.name, ["bash", str(f)], None))
             continue
 
         # Linux / generic Unix
@@ -541,11 +542,25 @@ def _detect_artifacts(folder: Path) -> list:
         except Exception:
             magic = b""
         if magic == b"\x7fELF":
-            found.append(("binary", f.name, [str(f)]))
+            found.append(("binary", f.name, [str(f)], None))
         elif f.suffix in (".sh", ".bash"):
-            found.append(("script", f.name, ["bash", str(f)]))
+            cwd = _matching_source_dir(f, source_dirs)
+            found.append(("script", f.name, ["bash", str(f)], cwd))
+        elif f.suffix == ".py":
+            py_cmd = "python" if is_windows else "python3"
+            cwd = _matching_source_dir(f, source_dirs)
+            found.append(("python", f.name, [py_cmd, str(f)], cwd))
 
     return found
+
+def _matching_source_dir(script_file: Path, source_dirs: list) -> str | None:
+    """Find source dir that matches this script's project prefix."""
+    stem = script_file.name
+    for sd in source_dirs:
+        prefix = sd.name.replace("_source", "")
+        if stem.startswith(prefix + "_") or stem.startswith(prefix):
+            return str(sd)
+    return None
 
 def _classify_jar(path: Path) -> str:
     import zipfile
@@ -677,10 +692,10 @@ if __name__ == "__main__":
             if artifacts:
                 best = _auto_pick_artifact(artifacts)
                 if best:
-                    kind, name, cmd = best
+                    kind, name, cmd, cwd = best
                     UI.success(f"{t('build_ready')} {name} ({kind})")
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
-                    subprocess.run(cmd, shell=platform.system() == "Windows")
+                    subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
             ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
             if ans in ['j', 'ja', 'y', 'yes']:
