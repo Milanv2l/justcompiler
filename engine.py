@@ -517,6 +517,13 @@ class Engine:
                 scripts = self._detect_entry_scripts(root_candidate)
                 if scripts:
                     UI.log(UI.GREEN, "Entry points", f"found {len(scripts)} script(s)")
+                    for s in scripts:
+                        src = root_candidate / s["name"]
+                        if src.exists():
+                            dest = self.out_root / f"{name}_{s['name']}"
+                            shutil.copy2(src, dest)
+                            s["path"] = str(dest)
+                            UI.log(UI.GREEN, t('act_saved'), f"Script -> {dest.name}")
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts})
                     self.stats["success"] += 1
                     return
