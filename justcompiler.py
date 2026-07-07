@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -330,7 +330,8 @@ def _detect_artifacts(folder: Path) -> list:
 
         # JAR — cross-platform
         if f.suffix == ".jar":
-            found.append(("jar", f.name, ["java", "-jar", str(f)]))
+            kind = "mod" if _is_mod_jar(f) else "jar"
+            found.append((kind, f.name, ["java", "-jar", str(f)]))
             continue
 
         # Python — cross-platform
@@ -380,6 +381,19 @@ def _detect_artifacts(folder: Path) -> list:
             found.append(("script", f.name, ["bash", str(f)]))
 
     return found
+
+def _is_mod_jar(path: Path) -> bool:
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            if "fabric.mod.json" in names or "quilt.mod.json" in names:
+                return True
+            if "META-INF/mods.toml" in names or "META-INF/neoforge.mods.toml" in names:
+                return True
+    except Exception:
+        pass
+    return False
 
 if __name__ == "__main__":
     init_terminal_colors()

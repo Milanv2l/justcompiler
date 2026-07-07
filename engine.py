@@ -402,6 +402,20 @@ class Engine:
         return False
 
     def process(self, root, files, plugin):
+        # Walk up to find the actual project root if this is a subdirectory match
+        if plugin.get("wrapper") or plugin.get("cmd_system", "").startswith("gradle"):
+            for ancestor in [root] + list(root.parents):
+                if ancestor == self.src_root.parent: break
+                if any((ancestor / bf).exists() for bf in ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]):
+                    root = ancestor
+                    break
+        elif "mvn" in plugin.get("tool", "") or plugin.get("cmd_system", "").startswith("mvn"):
+            for ancestor in [root] + list(root.parents):
+                if ancestor == self.src_root.parent: break
+                if (ancestor / "pom.xml").exists():
+                    root = ancestor
+                    break
+
         name = root.name if root.name != "src" else "Root-Workspace"
         req = self.dep_mgr.inspect_version(root, plugin["tool"])
         UI.log(UI.BLUE, t('act_detected'), f"{name} [{plugin['name']}] ({t('req_msg', req=req)})")

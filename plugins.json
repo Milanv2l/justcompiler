@@ -163,6 +163,15 @@
         "out_exts": [".jar", ".apk", ".aab"]
     },
     {
+        "name": "Minecraft Mod (Fabric/Forge/Quilt)",
+        "detect": ["fabric.mod.json", "quilt.mod.json", "mods.toml", "neoforge.mods.toml"],
+        "tool": "gradle",
+        "wrapper": "gradlew",
+        "cmd_system": "gradle assemble",
+        "out_dirs": ["build/libs", "build/distributions"],
+        "out_exts": [".jar"]
+    },
+    {
         "name": "Android (Gradle)",
         "detect": ["AndroidManifest.xml"],
         "tool": "gradle",
