@@ -11,8 +11,8 @@ from pathlib import Path
 from core import UI, t
 
 def _build_with_spinner(title: str, cmd_args: list) -> bool:
-    """Run a docker build with a background spinner (step info shown as available)."""
-    cmd_args = list(cmd_args) + ["--progress=plain"]
+    """Run a docker build with a background spinner showing step progress."""
+    cmd_args = list(cmd_args)
     spinner = UI.spinner(title)
     with spinner:
         proc = subprocess.Popen(
@@ -84,7 +84,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         
         if not check_base.stdout.strip():
             set_status_fn(t('docker_building_base'))
-            print(f"{UI.CYAN}➔ Basisomgeving niet gevonden. Eenmalig downloaden en opbouwen van alle compilers...{UI.RESET}")
+            UI.info("Basisomgeving niet gevonden. Eenmalig downloaden...")
             
             base_dockerfile_content = f"""FROM {base_image}
 ARG DEBIAN_FRONTEND=noninteractive
@@ -110,7 +110,7 @@ RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
             finally:
                 if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
         else:
-            print(f"{UI.GREEN}✔ Lokale basisomgeving (justcompiler-base:latest) gedetecteerd. Geen downloads nodig!{UI.RESET}")
+            UI.success("Basisomgeving justcompiler-base:latest beschikbaar")
 
         # STAP 2: Bouw de vederlichte engine layer (duurt < 0.5 seconde, hergebruikt de lokale basis)
         set_status_fn("Snelkoppeling maken...")
@@ -139,7 +139,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
             entrypoint_path.write_text(entrypoint_content, encoding="utf-8")
             dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
             
-            print(f"{UI.CYAN}➔ Synchroniseren van de script-updates in de sandbox...{UI.RESET}")
+            UI.info("Engine-laag synchroniseren...")
             _build_with_spinner(t('docker_building_spinner'), docker_cmd + ["build", "-t", image_tag, str(host_dir)])
         finally:
             if dockerfile_path.exists(): dockerfile_path.unlink()
@@ -177,12 +177,9 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
     try:
         set_status_fn(t('docker_compiling_status'))
         t0 = time.time()
-        UI.info("━━━ Build Pipeline ─── " + t('docker_compiling_status'))
-        print(f"{UI.DIM}─" * 75 + f"{UI.RESET}")
+        UI.info(t('docker_compiling_status'))
         result = subprocess.run(run_cmd)
         elapsed = time.time() - t0
-        print(f"{UI.DIM}─" * 75 + f"{UI.RESET}")
-        print(f"{UI.DIM}Build completed in {elapsed:.1f}s{UI.RESET}")
 
         if result.returncode != 0:
             set_status_fn(t('docker_failed_status'))

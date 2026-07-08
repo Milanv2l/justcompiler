@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.3.9"
+VERSION = "1.4.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -202,16 +202,15 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
     return targets[0]["name"]
 
 def _force_update(selected_lang):
-    print()
     try:
         if _do_update(ask=False, force=True):
-            print(f"{UI.GREEN}[OK] JustCompiler updated! Please restart.{UI.RESET}")
+            UI.success("JustCompiler updated! Please restart.")
             sys.exit(0)
     except Exception as e:
-        print(f"{UI.RED}[ERR] Update failed: {e}{UI.RESET}")
+        UI.error(f"Update failed: {e}")
         input(f"\n{UI.CYAN}{UI.BOLD}Press Enter to return...{UI.RESET}")
         return selected_lang
-    print(f"{UI.YELLOW}[INFO] You are already on the latest version ({VERSION}).{UI.RESET}")
+    UI.info(f"You are already on the latest version ({VERSION}).")
     input(f"\n{UI.CYAN}{UI.BOLD}Press Enter to return...{UI.RESET}")
     return selected_lang
 
@@ -224,7 +223,7 @@ def _do_update(ask=True, force=False):
     if not force and remote_version == VERSION:
         return False if not ask else None
     if ask:
-        print(f"{UI.YELLOW}[INFO] New version {remote_version} available (current: {VERSION}){UI.RESET}")
+        UI.info(f"New version {remote_version} available (current: {VERSION})")
         confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()
         if confirm not in ['j', 'ja', 'y', 'yes']:
             return
@@ -256,7 +255,7 @@ def _do_update(ask=True, force=False):
                     UI.warn(f"Checksum mismatch: {fname}")
                     all_ok = False
             if not all_ok:
-                print(f"{UI.RED}[ERR] Checksum verification failed. Update aborted.{UI.RESET}")
+                UI.error("Checksum verification failed. Update aborted.")
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return False
         for file_name in UPDATE_FILES:
@@ -264,7 +263,7 @@ def _do_update(ask=True, force=False):
             if src.exists():
                 shutil.copy2(src, current_dir / file_name)
         shutil.rmtree(temp_dir, ignore_errors=True)
-        print(f"{UI.GREEN}[OK] JustCompiler updated to {remote_version}! Please restart.{UI.RESET}")
+        UI.success(f"JustCompiler updated to {remote_version}! Please restart.")
         return True
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -300,7 +299,7 @@ def _remove_alias():
             pass
 
 def handle_uninstall():
-    print(f"{UI.YELLOW}[WARN] Uninstalling JustCompiler... / JustCompiler wordt verwijderd...{UI.RESET}")
+    UI.warn("Uninstalling JustCompiler... / JustCompiler wordt verwijderd...")
     confirm = input(f"{UI.CYAN}{UI.BOLD}Are you sure you want to uninstall JustCompiler? (y/n): {UI.RESET}").strip().lower()
     if confirm not in ['j', 'ja', 'y', 'yes']:
         sys.exit(0)
@@ -318,7 +317,7 @@ def handle_uninstall():
     else:
         cmd = f"sleep 1 && rm -rf '{install_dir}'"
         subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"{UI.GREEN}[OK] JustCompiler has been completely uninstalled.{UI.RESET}")
+    UI.success("JustCompiler has been completely uninstalled.")
     sys.exit(0)
 
 def fetch_remote_git_info(url: str) -> tuple:
@@ -360,11 +359,7 @@ def handle_remote_git(url: str) -> Path:
         url, branch = [p.strip() for p in url.split("#", 1)]
 
     if not branch:
-        if hasattr(UI, 'spinner'):
-            with UI.spinner("Querying remote Git repository for available branches..."):
-                default_branch, other_branches = fetch_remote_git_info(url)
-        else:
-            print("Querying remote Git repository for available branches...")
+        with UI.spinner("Querying remote Git repository for available branches..."):
             default_branch, other_branches = fetch_remote_git_info(url)
         
         set_current_status("Awaiting branch selection")
@@ -374,11 +369,7 @@ def handle_remote_git(url: str) -> Path:
         for idx, br in enumerate(other_branches, 2):
             branch_lines.append(f" [{idx}] 🌿 {br}")
         
-        if hasattr(UI, 'draw_panel'):
-            UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
-        else:
-            print("=== Branch Selection ===")
-            for bl in branch_lines: print(bl)
+        UI.draw_panel("Branch Selection", branch_lines, color=UI.CYAN)
             
         max_choice = len(other_branches) + 1
         
@@ -417,7 +408,7 @@ def handle_remote_git(url: str) -> Path:
     
     if result.returncode != 0:
         UI.error(t('clone_fail'))
-        print(f"\n{UI.RED}Git Error Details:{UI.RESET}\n{result.stderr.strip()}")
+        UI.log(UI.RED, "", result.stderr.strip()[:500])
         sys.exit(1)
         
     return cache_dir
@@ -443,7 +434,7 @@ def handle_settings(selected_lang):
         sys.stdout.flush()
         s = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('settings_prompt')}{UI.RESET}").strip()
         if s == "1":
-            print(f"\n{UI.CYAN}Language / Taal:{UI.RESET}")
+            UI.info("Language / Taal")
             print("  [1] English")
             print("  [2] Nederlands")
             sys.stdout.flush()
@@ -547,35 +538,33 @@ def _show_runtime_hints(build_folder: Path):
     if not deps:
         return
     pm_family, _ = _detect_package_manager()
-    print(f"\n{UI.YELLOW}⚠ Possible missing runtime dependencies:{UI.RESET}")
+    lines = []
     for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
         if not pkg:
             continue
-        print(f"  {UI.CYAN}• {pkg}{UI.RESET}")
-        if apt:
-            print(f"    {UI.GREEN}Debian/Ubuntu:{UI.RESET} sudo apt install {apt}")
-        if pacman:
-            print(f"    {UI.GREEN}Arch:{UI.RESET} sudo pacman -S {pacman}")
-        if dnf:
-            print(f"    {UI.GREEN}Fedora:{UI.RESET} sudo dnf install {dnf}")
-        if winget:
-            print(f"    {UI.GREEN}Windows (winget):{UI.RESET} winget install {winget}")
-        if choco:
-            print(f"    {UI.GREEN}Windows (choco):{UI.RESET} choco install {choco}")
-        if scoop:
-            print(f"    {UI.GREEN}Windows (scoop):{UI.RESET} scoop install {scoop}")
-    # Auto-install prompt
+        entry = [f"• {pkg}"]
+        if apt: entry.append(f"  apt: sudo apt install {apt}")
+        if pacman: entry.append(f"  pacman: sudo pacman -S {pacman}")
+        if dnf: entry.append(f"  dnf: sudo dnf install {dnf}")
+        if winget: entry.append(f"  winget: winget install {winget}")
+        if choco: entry.append(f"  choco: choco install {choco}")
+        if scoop: entry.append(f"  scoop: scoop install {scoop}")
+        lines.extend(entry)
+    if hasattr(UI, 'draw_panel'):
+        UI.draw_panel("Possible missing runtime dependencies", lines, color=UI.YELLOW)
+    else:
+        UI.warn("Possible missing runtime dependencies")
+        for l in lines: print(f"  {l}")
     if pm_family:
-        print()
-        ans = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}").strip().lower()
+        ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}").strip().lower()
         if ans in ('y', 'yes', 'j', 'ja'):
             cmd = _build_install_cmd(deps, pm_family)
             if cmd:
-                print(f"{UI.YELLOW}Running: {' '.join(cmd)}{UI.RESET}")
+                UI.info(f"Running: {' '.join(cmd)}")
                 try:
                     subprocess.run(cmd)
                 except Exception as e:
-                    print(f"{UI.RED}Install failed: {e}{UI.RESET}")
+                    UI.error(f"Install failed: {e}")
 
 
 import zipfile
@@ -872,7 +861,7 @@ if __name__ == "__main__":
             selected_lang = config["lang"]
         else:
             UI.clear()
-            print(f"{UI.CYAN}Select interface language / Kies taal:{UI.RESET}")
+            UI.info("Select interface language / Kies taal")
             print("  [1] English (Default)")
             print("  [2] Nederlands")
             sys.stdout.flush()
@@ -961,14 +950,12 @@ if __name__ == "__main__":
                 if selected:
                     cmd = list(selected.cmd)
                     cwd = selected.cwd
-                    print(f"\n{UI.BOLD}{UI.CYAN}Starting: {selected.name} ({selected.kind}){UI.RESET}")
-                    print(f"{UI.DIM}Command: {' '.join(cmd)}{UI.RESET}")
+                    UI.info(f"Starting: {selected.name} ({selected.kind})")
+                    UI.log(UI.DIM, "", f"$ {' '.join(cmd)}")
                     args = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('artifact_args')}{UI.RESET}").strip()
                     if args:
                         cmd.extend(args.split())
-                    print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
                     res = subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
-                    print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
                     if res.returncode != 0:
                         _show_runtime_hints(build_folder)
             ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
