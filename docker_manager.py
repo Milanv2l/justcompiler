@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from core import UI, t
 
-def _build_with_spinner(title, cmd_args):
+def _build_with_spinner(title: str, cmd_args: list) -> bool:
     """Run a docker build with a background spinner (step info shown as available)."""
     cmd_args = list(cmd_args) + ["--progress=plain"]
     spinner = UI.spinner(title)
@@ -33,7 +33,7 @@ def _build_with_spinner(title, cmd_args):
             spinner.fail()
     return proc.returncode == 0
 
-def get_docker_cmd():
+def get_docker_cmd() -> list:
     docker_cmd = ["docker"]
     if platform.system() != "Windows":
         if subprocess.run(["docker", "ps"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
@@ -53,7 +53,7 @@ def _volume_name(target_path: Path) -> str:
     h = hashlib.sha256(str(target_path.resolve()).encode()).hexdigest()[:12]
     return f"justcompiler-{h}"
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = ""):
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "") -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -87,7 +87,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
             print(f"{UI.CYAN}➔ Basisomgeving niet gevonden. Eenmalig downloaden en opbouwen van alle compilers...{UI.RESET}")
             
             base_dockerfile_content = f"""FROM {base_image}
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
     curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
     qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\

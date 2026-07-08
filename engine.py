@@ -28,7 +28,7 @@ class Engine:
         subprocess.run("git config --global --add safe.directory '*'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.plugins = self.load_plugins(plugin_url)
 
-    def load_plugins(self, url):
+    def load_plugins(self, url: str | None) -> list:
         try:
             if url:
                 with urllib.request.urlopen(url) as response: return json.loads(response.read().decode())
@@ -40,7 +40,7 @@ class Engine:
             UI.error(f"Plugins error: {e}")
             sys.exit(1)
 
-    def check_ready(self, plugin, root) -> bool:
+    def check_ready(self, plugin: dict, root: Path) -> bool:
         if self.dep_mgr.in_docker: return True
         tool = plugin["tool"]
         has_wrapper = "wrapper" in plugin and self.find_wrapper(root, plugin["wrapper"])
@@ -55,7 +55,7 @@ class Engine:
             return self.dep_mgr.trigger_install(tool)
         return True
 
-    def run_cmd(self, cmd, cwd):
+    def run_cmd(self, cmd: str, cwd: Path) -> tuple[bool, list]:
         env = os.environ.copy()
 
         if sys.platform != "win32":
@@ -138,7 +138,7 @@ class Engine:
             return "python -m unittest discover" if sys.platform == "win32" else "python3 -m unittest discover"
         return None
 
-    def harvest(self, name, root, plugin):
+    def harvest(self, name: str, root: Path, plugin: dict) -> list:
         items = []
         for out_dir in plugin["out_dirs"]:
             for base in [root] + list(root.parents)[:2]:
@@ -443,7 +443,7 @@ class Engine:
             pass
         return False
 
-    def process(self, root, files, plugin):
+    def process(self, root: Path, files: list, plugin: dict) -> None:
         # Walk up to find the actual project root if this is a subdirectory match
         if plugin.get("wrapper") or plugin.get("cmd_system", "").startswith("gradle"):
             for ancestor in [root] + list(root.parents):
@@ -555,7 +555,7 @@ class Engine:
                     pass
         return found
 
-    def run(self, filter_name=""):
+    def run(self, filter_name: str = "") -> bool:
         t0 = time.time()
         UI.log(UI.BLUE, t('act_scan'), f"{self.src_root.resolve()}")
 

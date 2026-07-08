@@ -192,8 +192,8 @@ _TRANSLATIONS = {
 
         "docker_cache_check": "Checking Docker cache and existing environments...",
         "docker_clean_old": "New script version detected! Cleaning up old Docker sandboxes...",
-        "docker_building_base": "Building Modern Ubuntu 26.04 LTS Sandbox base image...",
-        "docker_building_spinner": "Building Modern Ubuntu 26.04 LTS Sandbox Environment...",
+        "docker_building_base": "Building universal sandbox base image...",
+        "docker_building_spinner": "Building sandbox environment...",
         "docker_reusing_old": "Successfully mapped and reusing old Docker container version: {version}",
         "docker_compiling_status": "Compiling project on the background inside the secure sandbox...",
         "docker_compiling_spinner": "Compiling project inside the safe sandbox... (Press 's' + Enter for status)",
@@ -264,8 +264,8 @@ _TRANSLATIONS = {
 
         "docker_cache_check": "Docker cache controleren en actieve omgevingen inspecteren...",
         "docker_clean_old": "Nieuwe scriptversie gedetecteerd! Oude Docker-omgevingen worden opgeruimd...",
-        "docker_building_base": "Modern Ubuntu 26.04 LTS Sandbox basis-image opbouwen...",
-        "docker_building_spinner": "Modern Ubuntu 26.04 LTS Sandbox-omgeving bouwen...",
+        "docker_building_base": "Universele sandbox basis-image opbouwen...",
+        "docker_building_spinner": "Sandbox-omgeving bouwen...",
         "docker_reusing_old": "Succesvol gekoppeld met oude Docker containerversie: {version}",
         "docker_compiling_status": "Project op de achtergrond aan het compileren binnen de sandbox...",
         "docker_compiling_spinner": "Project aan het compileren in de veilige sandbox... (Druk op 's' + Enter voor status)",

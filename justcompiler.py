@@ -18,7 +18,7 @@ CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
 
-def verify_checksum(file_path, expected_hash):
+def verify_checksum(file_path: str, expected_hash: str) -> bool:
     sha256 = hashlib.sha256()
     try:
         with open(file_path, 'rb') as f:
@@ -28,7 +28,7 @@ def verify_checksum(file_path, expected_hash):
     except Exception:
         return False
 
-def load_checksums(file_path):
+def load_checksums(file_path: str) -> dict:
     try:
         sums = {}
         for line in Path(file_path).read_text(encoding="utf-8").splitlines():
@@ -42,7 +42,7 @@ def load_checksums(file_path):
     except Exception:
         return {}
 
-def load_config():
+def load_config() -> dict:
     if CONFIG_FILE.exists():
         try:
             return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
@@ -55,7 +55,7 @@ def load_config():
         pass
     return default
 
-def save_config(**updates):
+def save_config(**updates: dict) -> dict:
     config = load_config()
     config.update(updates)
     try:
@@ -64,11 +64,11 @@ def save_config(**updates):
         pass
     return config
 
-def set_current_status(msg: str):
+def set_current_status(msg: str) -> None:
     global CURRENT_STATUS
     CURRENT_STATUS = msg
 
-def init_terminal_colors():
+def init_terminal_colors() -> None:
     if os.name == 'nt':
         try:
             import ctypes
@@ -77,7 +77,7 @@ def init_terminal_colors():
         except Exception:
             pass
 
-def check_for_updates():
+def check_for_updates() -> None:
     config = load_config()
     if not config.get("check_updates", True):
         return
@@ -334,7 +334,8 @@ def fetch_remote_git_info(url: str) -> tuple:
                 if line.startswith("ref: refs/heads/"):
                     default_branch = line.split()[1].replace("refs/heads/", "").strip()
                     break
-    except Exception: pass
+    except Exception as e:
+        UI.warn(f"Could not fetch default branch from {url}: {e}")
 
     try:
         heads_res = subprocess.run(["git", "ls-remote", "--heads", url], capture_output=True, text=True, env=env, timeout=4)
@@ -344,7 +345,8 @@ def fetch_remote_git_info(url: str) -> tuple:
                     b_name = line.split("\trefs/heads/")[-1].strip()
                     if b_name not in all_branches:
                         all_branches.append(b_name)
-    except Exception: pass
+    except Exception as e:
+        UI.warn(f"Could not list remote branches from {url}: {e}")
 
     if default_branch in all_branches:
         all_branches.remove(default_branch)
@@ -400,13 +402,15 @@ def handle_remote_git(url: str) -> Path:
     show_tui_header()
     UI.info(t('cloning'))
 
-    cache_dir = Path("./_git_cache") / url.split("/")[-1].replace(".git", "")
-    
+    cache_dir = Path("./_git_cache").resolve() / url.split("/")[-1].replace(".git", "")
+    allowed_base = Path("./_git_cache").resolve()
+
+    if not str(cache_dir).startswith(str(allowed_base)):
+        UI.error(f"Veiligheidsfout: cache-pad buiten _git_cache: {cache_dir}")
+        sys.exit(1)
+
     if cache_dir.exists():
-        if platform.system() != "Windows":
-            subprocess.run(f"sudo rm -rf {cache_dir}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            shutil.rmtree(cache_dir, ignore_errors=True)
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
     clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, url, str(cache_dir)]
     result = subprocess.run(clone_cmd, capture_output=True, text=True)
