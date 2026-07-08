@@ -577,129 +577,23 @@ def _show_runtime_hints(build_folder: Path):
                 except Exception as e:
                     print(f"{UI.RED}Install failed: {e}{UI.RESET}")
 
-def _auto_pick_artifact(artifacts: list) -> tuple | None:
-    scores = []
-    for kind, name, cmd, cwd in artifacts:
-        score = 0
-        low = name.lower()
-        if "-sources" in low or "-javadoc" in low or "-doc" in low:
-            score -= 100
-        if kind == "mod":
-            score += 50
-        elif kind in ("plugin", "bungee-plugin", "velocity-plugin"):
-            score += 40
-        elif kind == "binary":
-            score += 10
-        elif kind == "executable":
-            score += 10
-        scores.append((score, kind, name, cmd, cwd))
-    scores.sort(key=lambda x: (-x[0], x[2]))
-    if scores and scores[0][0] > -100:
-        return (scores[0][1], scores[0][2], scores[0][3], scores[0][4])
-    return artifacts[0] if artifacts else None
 
-def _detect_artifacts(folder: Path) -> list:
-    found = []
-    is_windows = platform.system() == "Windows"
-    is_macos = platform.system() == "Darwin"
+import zipfile
+from collections import namedtuple
 
-    source_dirs = [d for d in folder.iterdir() if d.is_dir() and d.name.endswith("_source")]
+ArtifactInfo = namedtuple("ArtifactInfo", ["name", "kind", "cmd", "cwd", "size", "desc", "is_main"])
 
-    for f in folder.iterdir():
-        if not f.is_file() or f.stat().st_size == 0:
-            continue
 
-        # JAR — cross-platform
-        if f.suffix == ".jar":
-            kind = _classify_jar(f)
-            found.append((kind, f.name, ["java", "-jar", str(f)], None))
-            continue
+def _size_str(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 ** 2:
+        return f"{size / 1024:.1f} KB"
+    else:
+        return f"{size / 1024 ** 2:.1f} MB"
 
-        # Python — cross-platform
-        if f.suffix == ".py":
-            py_cmd = "python" if is_windows else "python3"
-            src_name, cwd = _matching_source_dir(f, source_dirs)
-            if src_name:
-                found.append(("python", f.name, [py_cmd, src_name], cwd))
-            else:
-                found.append(("python", f.name, [py_cmd, str(f)], None))
-            continue
-
-        # JavaScript — cross-platform
-        if f.suffix == ".js":
-            found.append(("node", f.name, ["node", str(f)], None))
-            continue
-
-        # Windows-specific
-        if is_windows:
-            if f.suffix in (".exe", ".bat", ".cmd"):
-                found.append(("executable", f.name, [str(f)], None))
-            continue
-
-        # macOS-specific
-        if is_macos:
-            try:
-                magic = f.read_bytes()[:4]
-            except Exception:
-                magic = b""
-            if magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
-                found.append(("binary", f.name, [str(f)], None))
-            elif magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):
-                found.append(("binary", f.name, [str(f)], None))
-            elif magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe"):
-                found.append(("binary", f.name, [str(f)], None))
-            elif f.suffix in (".sh", ".bash"):
-                found.append(("script", f.name, ["bash", str(f)], None))
-            continue
-
-        # Linux / generic Unix
-        try:
-            magic = f.read_bytes()[:4]
-        except Exception:
-            magic = b""
-        if magic == b"\x7fELF":
-            found.append(("binary", f.name, [str(f)], None))
-        elif f.suffix in (".sh", ".bash"):
-            src_name, cwd = _matching_source_dir(f, source_dirs)
-            if src_name:
-                found.append(("script", f.name, ["bash", src_name], cwd))
-            else:
-                found.append(("script", f.name, ["bash", str(f)], None))
-        elif f.suffix == ".py":
-            py_cmd = "python" if is_windows else "python3"
-            src_name, cwd = _matching_source_dir(f, source_dirs)
-            if src_name:
-                found.append(("python", f.name, [py_cmd, src_name], cwd))
-            else:
-                found.append(("python", f.name, [py_cmd, str(f)], None))
-        elif not f.suffix:
-            try:
-                head = f.read_bytes()[:64]
-                if head.startswith(b'#!'):
-                    interp = "bash" if b"bash" in head[:32] else None
-                    src_name, cwd = _matching_source_dir(f, source_dirs)
-                    if src_name:
-                        found.append(("script", f.name, [interp or "bash", src_name], cwd))
-                    else:
-                        found.append(("script", f.name, [str(f)], None))
-            except Exception:
-                pass
-
-    return found
-
-def _matching_source_dir(script_file: Path, source_dirs: list) -> tuple:
-    """Find source dir that matches this script's project prefix.
-    Returns (relative_script_name, cwd) or (None, None)."""
-    stem = script_file.name
-    for sd in source_dirs:
-        prefix = sd.name.replace("_source", "")
-        if stem.startswith(prefix + "_"):
-            orig_name = stem[len(prefix) + 1:]
-            return (orig_name, str(sd))
-    return (None, None)
 
 def _classify_jar(path: Path) -> str:
-    import zipfile
     try:
         with zipfile.ZipFile(path) as z:
             names = z.namelist()
@@ -716,6 +610,243 @@ def _classify_jar(path: Path) -> str:
     except Exception:
         pass
     return "jar"
+
+
+def _scan_artifacts(folder: Path) -> list[ArtifactInfo]:
+    """Recursively scan build folder for runnable artifacts with metadata."""
+    found: list[ArtifactInfo] = []
+    is_windows = platform.system() == "Windows"
+    is_macos = platform.system() == "Darwin"
+    source_dirs = [d for d in folder.iterdir() if d.is_dir() and d.name.endswith("_source")]
+    skipped_dirs = {"node_modules", "__pycache__", ".git", "venv", ".venv", "_source"}
+
+    for root, dirs, files in os.walk(str(folder)):
+        root_p = Path(root)
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skipped_dirs]
+
+        for fname in files:
+            fpath = root_p / fname
+            if not fpath.is_file():
+                continue
+            try:
+                size = fpath.stat().st_size
+            except OSError:
+                continue
+            if size == 0:
+                continue
+
+            low = fname.lower()
+            kind, cmd, cwd = None, None, None
+            desc = ""
+
+            # --- JAR ---
+            if fpath.suffix == ".jar":
+                kind = _classify_jar(fpath)
+                cmd = ["java", "-jar", str(fpath)]
+                desc = f"JAR \u2014 {_size_str(size)}"
+
+            # --- Python ---
+            elif fpath.suffix == ".py":
+                py_cmd = "python" if is_windows else "python3"
+                src_name, src_cwd = _matching_source_dir(fpath, source_dirs)
+                cmd = [py_cmd, src_name] if src_name else [py_cmd, str(fpath)]
+                cwd = src_cwd
+                kind = "python"
+                desc = f"Python \u2014 {_size_str(size)}"
+
+            # --- JavaScript / TypeScript ---
+            elif fpath.suffix in (".js", ".mjs"):
+                cmd = ["node", str(fpath)]
+                kind = "node"
+                desc = f"Node.js \u2014 {_size_str(size)}"
+            elif fpath.suffix == ".ts" and not fname.endswith(".d.ts"):
+                cmd = ["node", "--loader", "ts-node/esm", str(fpath)]
+                kind = "node"
+                desc = f"TypeScript \u2014 {_size_str(size)}"
+
+            # --- Windows ---
+            elif is_windows and fpath.suffix in (".exe", ".bat", ".cmd"):
+                cmd = [str(fpath)]
+                kind = "executable"
+                desc = f"Windows executable \u2014 {_size_str(size)}"
+
+            # --- macOS ---
+            elif is_macos:
+                magic = _read_magic(fpath)
+                if magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
+                             b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+                             b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe"):
+                    cmd = [str(fpath)]
+                    kind = "binary"
+                    desc = f"Mach-O binary \u2014 {_size_str(size)}"
+                elif fpath.suffix in (".sh", ".bash"):
+                    cmd = ["bash", str(fpath)]
+                    kind = "script"
+                    desc = f"Shell script \u2014 {_size_str(size)}"
+
+            # --- Linux / Unix ---
+            elif not is_windows and not is_macos:
+                magic = _read_magic(fpath)
+                if magic == b"\x7fELF":
+                    cmd = [str(fpath)]
+                    kind = "binary"
+                    desc = f"ELF binary \u2014 {_size_str(size)}"
+                elif fpath.suffix in (".sh", ".bash"):
+                    src_name, src_cwd = _matching_source_dir(fpath, source_dirs)
+                    cmd = ["bash", src_name] if src_name else ["bash", str(fpath)]
+                    cwd = src_cwd
+                    kind = "script"
+                    desc = f"Shell script \u2014 {_size_str(size)}"
+                elif fpath.suffix == ".py":
+                    py_cmd = "python" if is_windows else "python3"
+                    src_name, src_cwd = _matching_source_dir(fpath, source_dirs)
+                    cmd = [py_cmd, src_name] if src_name else [py_cmd, str(fpath)]
+                    cwd = src_cwd
+                    kind = "python"
+                    desc = f"Python \u2014 {_size_str(size)}"
+                elif not fpath.suffix:
+                    head = _read_head(fpath, 64)
+                    if head and head.startswith(b"#!"):
+                        interp = _shebang_interpreter(head)
+                        src_name, src_cwd = _matching_source_dir(fpath, source_dirs)
+                        if src_name:
+                            cmd = [interp or "bash", src_name]
+                            cwd = src_cwd
+                        else:
+                            cmd = [str(fpath)]
+                        kind = "script"
+                        desc = f"Shebang script ({interp or 'sh'}) \u2014 {_size_str(size)}"
+
+            if cmd is None:
+                continue
+
+            is_main = _is_main_artifact(fname, kind, size)
+            found.append(ArtifactInfo(
+                name=str(Path(fpath).relative_to(folder)),
+                kind=kind,
+                cmd=cmd,
+                cwd=cwd,
+                size=size,
+                desc=desc,
+                is_main=is_main,
+            ))
+
+    found.sort(key=lambda a: (not a.is_main, -a.size, a.name))
+    return found
+
+
+def _read_magic(path: Path, n_bytes: int = 4) -> bytes:
+    try:
+        return path.read_bytes()[:n_bytes]
+    except Exception:
+        return b""
+
+
+def _read_head(path: Path, n_bytes: int) -> bytes | None:
+    try:
+        return path.read_bytes()[:n_bytes]
+    except Exception:
+        return None
+
+
+def _shebang_interpreter(head: bytes) -> str | None:
+    try:
+        text = head.decode("utf-8", errors="replace")
+        if "bash" in text[:32]:
+            return "bash"
+        if "python" in text[:32]:
+            return "python3"
+        if "node" in text[:32]:
+            return "node"
+        if "ruby" in text[:32]:
+            return "ruby"
+        if "perl" in text[:32]:
+            return "perl"
+        if "lua" in text[:32]:
+            return "lua"
+        return None
+    except Exception:
+        return None
+
+
+def _matching_source_dir(script_file: Path, source_dirs: list) -> tuple:
+    """Find source dir that matches this script's project prefix."""
+    stem = script_file.name
+    for sd in source_dirs:
+        prefix = sd.name.replace("_source", "")
+        if stem.startswith(prefix + "_"):
+            orig_name = stem[len(prefix) + 1:]
+            return (orig_name, str(sd))
+    return (None, None)
+
+
+def _is_main_artifact(name: str, kind: str, size: int) -> bool:
+    """Determine whether an artifact is a primary executable the user cares about."""
+    score = 0
+    low = name.lower().rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    main_keywords = ["main", "app", "game", "client", "server", "launcher",
+                     "start", "gui", "run", "program", "release", "binary", "exec"]
+
+    if kind in ("binary", "executable", "mod", "plugin", "bungee-plugin", "velocity-plugin"):
+        score += 30
+    if kind in ("mod", "plugin", "bungee-plugin", "velocity-plugin"):
+        score += 20
+    if size > 1024 * 1024:
+        score += 15
+    elif size > 100 * 1024:
+        score += 5
+    if any(kw in low for kw in main_keywords):
+        score += 20
+    if any(p in low for p in ["-sources", "-javadoc", "-doc", "-dev", "-devel",
+                               "-static", "-dbg", "test_", "example", "sample",
+                               "-unshaded", "-slim"]):
+        score -= 50
+    if kind in ("jar",) and score < 20:
+        score -= 10
+    if low.startswith("lib") and kind != "mod":
+        score -= 20
+
+    return score >= 20
+
+
+def _show_artifact_selection(artifacts: list[ArtifactInfo]) -> ArtifactInfo | None:
+    """Show user a menu of artifacts grouped by type."""
+    mains = [a for a in artifacts if a.is_main]
+    others = [a for a in artifacts if not a.is_main]
+
+    lines = []
+    idx = 1
+    menu_map: dict[int, ArtifactInfo] = {}
+
+    if mains:
+        lines.append(f"  {UI.BOLD}{UI.GREEN}{t('artifact_main')}:{UI.RESET}")
+        for a in mains:
+            lines.append(f" [{idx}] {a.name}  {UI.DIM}({a.desc}, {a.kind}){UI.RESET}")
+            menu_map[idx] = a
+            idx += 1
+        lines.append("")
+
+    if others:
+        lines.append(f"  {UI.BOLD}{UI.YELLOW}{t('artifact_other')}:{UI.RESET}")
+        for a in others:
+            lines.append(f" [{idx}] {a.name}  {UI.DIM}({a.desc}, {a.kind}){UI.RESET}")
+            menu_map[idx] = a
+            idx += 1
+        lines.append("")
+
+    lines.append(f"  {UI.DIM}[{idx}] {t('artifact_skip')}{UI.RESET}")
+
+    UI.draw_panel(t('artifact_header'), lines, color=UI.CYAN)
+
+    sys.stdout.flush()
+    choice = input(f"\n{UI.CYAN}{UI.BOLD}\u279e {UI.RESET}{t('artifact_enter_choice')}{UI.RESET}").strip()
+
+    if choice.isdigit():
+        num = int(choice)
+        if num in menu_map:
+            return menu_map[num]
+
+    return None
 
 if __name__ == "__main__":
     init_terminal_colors()
@@ -824,12 +955,17 @@ if __name__ == "__main__":
 
         sys.stdout.flush()
         if success and any(build_folder.iterdir()):
-            artifacts = _detect_artifacts(build_folder)
+            artifacts = _scan_artifacts(build_folder)
             if artifacts:
-                best = _auto_pick_artifact(artifacts)
-                if best:
-                    kind, name, cmd, cwd = best
-                    UI.success(f"{t('build_ready')} {name} ({kind})")
+                selected = _show_artifact_selection(artifacts)
+                if selected:
+                    cmd = list(selected.cmd)
+                    cwd = selected.cwd
+                    print(f"\n{UI.BOLD}{UI.CYAN}Starting: {selected.name} ({selected.kind}){UI.RESET}")
+                    print(f"{UI.DIM}Command: {' '.join(cmd)}{UI.RESET}")
+                    args = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('artifact_args')}{UI.RESET}").strip()
+                    if args:
+                        cmd.extend(args.split())
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
                     res = subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
                     print(f"{UI.DIM}─" * 60 + f"{UI.RESET}")
