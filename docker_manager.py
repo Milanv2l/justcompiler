@@ -79,14 +79,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 
     if not check_image.stdout.strip():
 
-        # STAP 1: Controleer of de zware basisomgeving (justcompiler-base) al lokaal bestaat
-        check_base = subprocess.run(docker_cmd + ["images", "-q", "justcompiler-base:latest"], capture_output=True, text=True)
-        
-        if not check_base.stdout.strip():
-            set_status_fn(t('docker_building_base'))
-            UI.info("Basisomgeving niet gevonden. Eenmalig downloaden...")
-            
-            base_dockerfile_content = f"""FROM {base_image}
+        base_dockerfile_content = f"""FROM {base_image}
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
     curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
@@ -106,19 +99,28 @@ RUN ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21
 ENV JAVA_HOME=/opt/jdk21
 ENV PATH="$JAVA_HOME/bin:$PATH"
 """
+        base_hash = hashlib.sha256((base_image + base_dockerfile_content).encode()).hexdigest()[:12]
+        base_tag = f"justcompiler-base:{base_hash}"
+
+        # STAP 1: Controleer of de zware basisomgeving (justcompiler-base) al lokaal bestaat
+        check_base = subprocess.run(docker_cmd + ["images", "-q", base_tag], capture_output=True, text=True)
+
+        if not check_base.stdout.strip():
+            set_status_fn(t('docker_building_base'))
+            UI.info("Basisomgeving niet gevonden of gewijzigd. Opnieuw bouwen...")
             base_dockerfile_path = host_dir / "Dockerfile.base"
             try:
                 base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
-                _build_with_spinner(t('docker_building_base'), docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", "justcompiler-base:latest", str(host_dir)])
+                _build_with_spinner(t('docker_building_base'), docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", base_tag, str(host_dir)])
             finally:
                 if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
         else:
-            UI.success("Basisomgeving justcompiler-base:latest beschikbaar")
+            UI.success(f"Basisomgeving {base_tag} beschikbaar")
 
         # STAP 2: Bouw de vederlichte engine layer (duurt < 0.5 seconde, hergebruikt de lokale basis)
         set_status_fn("Snelkoppeling maken...")
         
-        dockerfile_content = f"""FROM justcompiler-base:latest
+        dockerfile_content = f"""FROM {base_tag}
 WORKDIR /workspace
 COPY core.py engine.py plugins.json /workspace/
 COPY entrypoint.sh /workspace/entrypoint.sh

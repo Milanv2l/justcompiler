@@ -13,7 +13,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -307,9 +307,13 @@ def handle_uninstall():
     install_dir = Path.home() / ".justcompiler"
     if shutil.which("docker"):
         docker_cmd = ["docker"] if platform.system() == "Windows" else ["sudo", "docker"]
-        get_images = subprocess.run(docker_cmd + ["images", "justcompiler-engine", "-q"], capture_output=True, text=True)
+        get_images = subprocess.run(docker_cmd + ["images", "-q", "justcompiler-engine"], capture_output=True, text=True)
         if get_images.stdout.strip():
             for img_id in get_images.stdout.splitlines():
+                subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        get_base = subprocess.run(docker_cmd + ["images", "-q", "justcompiler-base"], capture_output=True, text=True)
+        if get_base.stdout.strip():
+            for img_id in get_base.stdout.splitlines():
                 subprocess.run(docker_cmd + ["rmi", "-f", img_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if platform.system() == "Windows":
         cmd = f"Start-Sleep -s 1; Remove-Item -Recurse -Force '{install_dir}'"
