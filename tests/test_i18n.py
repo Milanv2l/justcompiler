@@ -1,5 +1,6 @@
 """Every t() key must exist in BOTH 'en' and 'nl' — prevents production KeyErrors."""
 import core
+from pathlib import Path
 
 
 def test_translation_dicts_exist():
@@ -62,3 +63,16 @@ def test_unknown_lang_is_ignored():
     core.set_lang("xx")
     assert core._CURRENT_LANG == "en"
     assert core.t("title") == core._TRANSLATIONS["en"]["title"]
+
+
+def test_every_t_reference_in_source_exists():
+    """Regression: keys used via t('key') in shipped code must exist in en dict
+    (catches raw-key output like 'act_retry fallback_msg' seen on CNNF)."""
+    import re
+    repo = Path(__file__).resolve().parent.parent
+    used = set()
+    for fname in ("engine.py", "justcompiler.py", "docker_manager.py"):
+        src = (repo / fname).read_text(encoding="utf-8")
+        used |= set(re.findall(r"\bt\(\s*['\"]([\w]+)['\"]", src))
+    missing = sorted(k for k in used if k not in core._TRANSLATIONS["en"])
+    assert not missing, f"t() keys missing from translations: {missing}"

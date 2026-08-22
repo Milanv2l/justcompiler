@@ -37,7 +37,15 @@ def test_detect_lists_nonempty():
 def test_specificity_is_int_in_range():
     for p in _load():
         assert isinstance(p["specificity"], int), p["name"]
-        assert 1 <= p["specificity"] <= 10, p["name"]
+        assert 1 <= p["specificity"] <= 11, p["name"]
+
+
+def test_minecraft_plugins_outrank_generic_java():
+    # Regression: CNNF case — a NeoForge repo must resolve to the Minecraft
+    # plugin, not generic Java (Gradle), even though both match build.gradle dirs.
+    by_name = {p["name"]: p["specificity"] for p in _load()}
+    for mc in [n for n in by_name if n.startswith("Minecraft")]:
+        assert by_name[mc] > by_name["Java (Gradle)"], mc
 
 
 def test_out_fields_are_lists():

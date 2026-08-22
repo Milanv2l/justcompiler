@@ -290,6 +290,76 @@ def test_harvest_missing_dir_no_items(tmp_path, make_engine):
     assert e.harvest("empty", src, PLUGIN_DIR) == []
 
 
+# ------------------------------------------------------- error classification
+
+UPSTREAM_ERRS = [
+    "Execution failed for task ':compileJava'.",
+    "> Could not resolve dev.engine-room.flywheel:flywheel-neoforge-api-1.21.1:1.0.6.",
+    "> Could not GET 'https://example.com/x.pom'. Received status code 523 from server: <none>",
+]
+NETDOWN_ERRS = [
+    "> Could not GET 'https://repo.example.com/x.pom'",
+    "> Failed to connect to repo.example.com: Connection refused",
+]
+OOM_ERRS = ["java.lang.OutOfMemoryError: Java heap space"]
+
+def test_classify_upstream_outage(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    assert e.classify_errors(UPSTREAM_ERRS) == "upstream_outage"
+
+
+def test_classify_network_down(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    assert e.classify_errors(NETDOWN_ERRS) == "network_down"
+
+
+def test_classify_oom(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    assert e.classify_errors(OOM_ERRS) == "oom"
+
+
+def test_classify_generic_is_empty(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    assert e.classify_errors(["some syntax error in Main.java"]) == ""
+
+
+def test_upstream_outage_skips_retries(tmp_path, make_engine):
+    # Regression (CNNF): an upstream maven outage must abort after ONE attempt
+    src = tmp_path / "src" / "blocked"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "build.txt").write_text("")
+    calls = []
+    bad = {**ECHO_PLUGIN, "cmd_system": "exit 1"}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [bad]
+
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        return False, list(UPSTREAM_ERRS)
+
+    e.run_cmd = fake_run_cmd
+    assert e.run() is False
+    assert len(calls) == 1, f"expected 1 attempt, got {len(calls)}"
+    assert e.stats["failed"] == 1
+
+
+def test_generic_failure_still_retries_three_times(tmp_path, make_engine):
+    src = tmp_path / "src" / "generic"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "build.txt").write_text("")
+    calls = []
+    bad = {**ECHO_PLUGIN, "cmd_system": "exit 1"}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [bad]
+
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        return False, ["error: something broke"]
+
+    e.run_cmd = fake_run_cmd
+    e.run()
+    assert len(calls) == 3
+
 # ------------------------------------------------------- end-to-end run()
 
 ECHO_PLUGIN = {

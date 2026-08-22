@@ -46,6 +46,18 @@ def test_sandbox_flags_limits():
     assert "JC_JAVA_VERSION=21" in combined and "--memory" in combined
 
 
+def test_sandbox_flags_extra_env():
+    flags = dm._sandbox_flags(21, {}, {"JC_GRADLE_HEAP": "4"})
+    assert "JC_GRADLE_HEAP=4" in flags
+    i = flags.index("JC_GRADLE_HEAP=4")
+    assert flags[i - 1] == "-e"
+    # extra env must come before any image reference
+    assert all("justcompiler" not in f for f in flags)
+
+
+def test_sandbox_flags_extra_env_empty_is_noop():
+    assert dm._sandbox_flags(None, {}, None) == dm._sandbox_flags(None, {}, {})
+
 # --------------------------------------------------------------- image hash
 
 def test_engine_hash_changes_with_input(tmp_path):

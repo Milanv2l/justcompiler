@@ -79,13 +79,15 @@ def _prune_old_images(docker_cmd: list, repo: str, keep_tag: str = "", keep: int
     except Exception:
         pass
 
-def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None) -> list:
+def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, extra_env: dict | None = None) -> list:
     """Docker flags for env + sandbox hardening. Must appear BEFORE the image name."""
     flags = []
     if java_version:
         flags += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
     else:
         flags += ["-e", "PYTHONUNBUFFERED=1"]
+    for k, v in (extra_env or {}).items():
+        flags += ["-e", f"{k}={v}"]
     cfg = cfg or {}
     if cfg.get("sandbox_network") is False:
         flags += ["--network", "none"]
@@ -95,7 +97,7 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None) -> 
         flags += ["--cpus", str(cfg["cpu_limit"])]
     return flags
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None) -> bool | None:
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None, extra_env: dict | None = None) -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -180,6 +182,9 @@ if [ -n "$JC_JAVA_VERSION" ] && [ -x "/opt/jdk$JC_JAVA_VERSION/bin/java" ]; then
     export JAVA_HOME="/opt/jdk$JC_JAVA_VERSION"
     export PATH="$JAVA_HOME/bin:$PATH"
 fi
+if [ -n "$JC_GRADLE_HEAP" ]; then
+    export GRADLE_OPTS="$GRADLE_OPTS -Dorg.gradle.jvmargs=-Xmx${JC_GRADLE_HEAP}g -XX:MaxMetaspaceSize=512m"
+fi
 echo "JAVA_HOME=$JAVA_HOME ($(java -version 2>&1 | head -1))"
 if [ -d /workspace/src ]; then
     rsync -a --delete /workspace/src/ /workspace/persist/
@@ -221,7 +226,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
 
     # All cache dirs are mounted into the container for optimal reuse
     subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"] + _sandbox_flags(java_version, cfg)
+    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"] + _sandbox_flags(java_version, cfg, extra_env)
     run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",
@@ -256,6 +261,10 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         elapsed = time.time() - t0
         try:
             artifacts_path.mkdir(exist_ok=True)
+            # Always salvage whatever the container produced (logs, manifest,
+            # partial artifacts) regardless of build outcome.
+            subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             (artifacts_path / "build.log").write_text("".join(log_lines), encoding="utf-8", errors="replace")
         except Exception:
             pass
@@ -267,9 +276,6 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         else:
             set_status_fn(t('docker_success_status'))
             UI.success(t('docker_success_status'))
-
-            artifacts_path.mkdir(exist_ok=True)
-            subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
 
     except KeyboardInterrupt:

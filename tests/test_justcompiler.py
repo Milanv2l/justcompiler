@@ -345,13 +345,20 @@ def test_scan_targets_prefers_minecraft_marker(tmp_path):
     assert "Minecraft Mod (Fabric/Forge/Quilt)" in names
 
 
-def test_scan_targets_gradle_beats_mod_when_both_markers(tmp_path):
-    # Documented behavior: plugin scan stops at first match per dir,
-    # so build.gradle + fabric.mod.json together resolve to Java (Gradle).
+def test_scan_targets_gradle_and_mod_markers(tmp_path):
+    # Regression (CNNF): repo with build.gradle at root + neoforge.mods.toml in
+    # resources must select the Minecraft mod plugin, specificity-weighted.
     _write(tmp_path, "build.gradle", "")
-    _write(tmp_path, "fabric.mod.json", "{}")
+    _write(tmp_path, "src/main/resources/META-INF/neoforge.mods.toml", "")
     targets = jc._scan_targets(tmp_path)
-    assert [t["name"] for t in targets] == ["Java (Gradle)"]
+    assert jc._auto_select_target(tmp_path, targets) == "Minecraft Mod (Fabric/Forge/Quilt)"
+
+
+def test_auto_select_pure_java_still_gradle(tmp_path):
+    _write(tmp_path, "build.gradle", "")
+    _write(tmp_path, "src/Main.java", "class Main{}")
+    targets = jc._scan_targets(tmp_path)
+    assert jc._auto_select_target(tmp_path, targets) == "Java (Gradle)"
 
 
 def test_auto_select_single_target(tmp_path):
@@ -391,6 +398,26 @@ def test_load_checksums_ignores_comments_and_blank(tmp_path):
     sums.write_text("# comment\n\n  \nabc  x.bin\n")
     assert jc.load_checksums(sums) == {"x.bin": "abc"}
 
+
+# ------------------------------------------------------------- mem clamp
+
+def test_available_mem_gb_linux(monkeypatch):
+    fake = "MemTotal:       16000000 kB\nMemAvailable:    2097152 kB\nBuffers:         100000 kB\n"
+    monkeypatch.setattr(Path, "read_text", lambda self: fake if self.name == "meminfo" else "")
+    assert jc._available_mem_gb() == 2.0
+
+
+def test_available_mem_gb_missing_file(monkeypatch):
+    monkeypatch.setattr(Path, "read_text", lambda self: (_ for _ in ()).throw(OSError()))
+    v = jc._available_mem_gb()
+    assert v is None or isinstance(v, float)
+
+
+def test_heap_clamp_formula():
+    # mirrors the inline formula in __main__: max(2, min(12, int(avail*0.7)))
+    for avail, expect in [(0.5, 2), (2.0, 2), (4.0, 2), (6.0, 4), (20.0, 12), (30.0, 12)]:
+        heap = max(2, min(12, int(avail * 0.7)))
+        assert heap == expect, avail
 
 # ------------------------------------------------------------ version sync
 

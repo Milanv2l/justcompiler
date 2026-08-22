@@ -1061,7 +1061,7 @@
         "out_exts": [
             ".jar"
         ],
-        "specificity": 8,
+        "specificity": 11,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
@@ -1089,7 +1089,7 @@
         "out_exts": [
             ".jar"
         ],
-        "specificity": 8,
+        "specificity": 11,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
@@ -1117,7 +1117,7 @@
         "out_exts": [
             ".jar"
         ],
-        "specificity": 8,
+        "specificity": 11,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",
@@ -1145,7 +1145,7 @@
         "out_exts": [
             ".jar"
         ],
-        "specificity": 8,
+        "specificity": 11,
         "runtime_deps": [
             {
                 "pkg": "Java Runtime (JRE)",

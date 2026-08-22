@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -181,11 +181,13 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
     except Exception:
         return targets[0]["name"]
     markers = {}
+    specs = {}
     for f in project_root.rglob("*"):
         if not f.is_file():
             continue
         for t in targets:
             plugin = pdata[t["plugin_idx"]]
+            specs[t["name"]] = plugin.get("specificity", 0)
             for d in plugin.get("detect", []):
                 if "*" in d:
                     pat = d.replace("*", "")
@@ -199,7 +201,9 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
                     if rel == d:
                         markers[t["name"]] = markers.get(t["name"], 0) + 3
     if markers:
-        return max(markers, key=markers.get)
+        # weight by plugin specificity so e.g. a Minecraft mod marker beats
+        # generic "Java (Gradle)" when both score the same marker hits
+        return max(markers, key=lambda n: (markers[n] + specs.get(n, 0), markers[n]))
     return targets[0]["name"]
 
 JAVA_DECL_PATTERNS = [
@@ -217,6 +221,16 @@ JAVA_DECL_PATTERNS = [
 ]
 _JAVA_BUILD_FILES = {"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "pom.xml"}
 _WALK_SKIP_DIRS = ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", ".git", ".gradle", "_git_cache"]
+
+def _available_mem_gb() -> float | None:
+    """Best-effort host available memory in GB (Linux /proc/meminfo)."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1048576
+    except Exception:
+        pass
+    return None
 
 def _detect_java_version(root: Path) -> int | None:
     """Scan build files for the Java version the project targets.
@@ -1092,43 +1106,54 @@ if __name__ == "__main__":
     show_tui_header()
     check_for_updates()
 
+    # Headless mode: --build PATH [--target NAME]
+    build_path = None
+    target_override = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--build" and i + 1 < len(sys.argv):
+            build_path = Path(sys.argv[i + 1])
+        elif arg == "--target" and i + 1 < len(sys.argv):
+            target_override = sys.argv[i + 1]
+
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
     while True:
         set_current_status("Awaiting instructions")
-        show_tui_header()
-
-        menu_items = [
-            f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
-            f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
-            f"{UI.YELLOW} {t('menu_3')}{UI.RESET}",
-            f"{UI.RED} {t('menu_4')}{UI.RESET}"
-        ]
-
-        UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
-        sys.stdout.flush()
-        choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('choice_prompt')}{UI.RESET}").strip()
-        target = None
-
-        if choice == "1":
-            UI.info(t('path_prompt'))
-            path_input = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
-            target = Path(path_input) if path_input else Path(".")
-        elif choice == "2":
-            UI.info(t('git_prompt'))
-            url = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
-            if url:
-                target = handle_remote_git(url)
-        elif choice == "3":
-            selected_lang = handle_settings(selected_lang)
-            continue
+        if not build_path:
+            show_tui_header()
+            menu_items = [
+                f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
+                f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
+                f"{UI.YELLOW} {t('menu_3')}{UI.RESET}",
+                f"{UI.RED} {t('menu_4')}{UI.RESET}"
+            ]
+            UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
+            sys.stdout.flush()
+            choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('choice_prompt')}{UI.RESET}").strip()
+            target = None
+            if choice == "1":
+                UI.info(t('path_prompt'))
+                path_input = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
+                target = Path(path_input) if path_input else Path(".")
+            elif choice == "2":
+                UI.info(t('git_prompt'))
+                url = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
+                if url:
+                    target = handle_remote_git(url)
+            elif choice == "3":
+                selected_lang = handle_settings(selected_lang)
+                continue
+            else:
+                UI.clear()
+                sys.exit(0)
         else:
-            UI.clear()
-            sys.exit(0)
+            target = build_path
 
         if not target or not target.exists():
             UI.error(t('err_dir'))
+            if build_path:
+                sys.exit(2)
             time.sleep(2)
             continue
 
@@ -1136,7 +1161,7 @@ if __name__ == "__main__":
         set_current_status("Scanning project...")
         show_tui_header()
         targets = _scan_targets(target)
-        target_filter = _auto_select_target(target, targets)
+        target_filter = target_override or _auto_select_target(target, targets)
         if target_filter:
             UI.log(UI.GREEN, t('build_selected'), target_filter)
         else:
@@ -1149,6 +1174,14 @@ if __name__ == "__main__":
         java_ver = _detect_java_version(target)
         if java_ver:
             UI.log(UI.GREEN, "Java", f"detected target version {java_ver}")
+
+        # Clamp Gradle heap to what the host can actually provide
+        extra_env = {}
+        avail_gb = _available_mem_gb()
+        if avail_gb is not None:
+            heap = max(2, min(12, int(avail_gb * 0.7)))
+            extra_env["JC_GRADLE_HEAP"] = str(heap)
+            UI.log(UI.DIM, "", f"Gradle heap clamped to {heap}g (host available: {avail_gb:.1f}g)")
 
         base_image = load_config().get("base_image", "ubuntu:24.04")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1163,8 +1196,12 @@ if __name__ == "__main__":
             set_status_fn=set_current_status,
             base_image=base_image,
             target_filter=target_filter,
-            java_version=java_ver
+            java_version=java_ver,
+            extra_env=extra_env
         )
+
+        if build_path:
+            sys.exit(0 if success else 1)
 
         sys.stdout.flush()
         if success and any(build_folder.iterdir()):

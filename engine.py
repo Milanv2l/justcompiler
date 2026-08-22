@@ -70,7 +70,9 @@ class Engine:
                     env["PATH"] = f"{path}/bin:{env.get('PATH', '')}"
                     break
 
-        kw, all_output, errors = ["error:", "failed", "exception", "not supported", "syntaxerror", "cannot find"], [], []
+        kw, all_output, errors = ["error:", "failed", "exception", "not supported", "syntaxerror",
+                                  "cannot find", "could not resolve", "could not get",
+                                  "status code 5", "connection refused", "failed to connect"], [], []
         t0 = time.time()
 
         with open(self.log_file, "a", encoding="utf-8") as log:
@@ -254,6 +256,17 @@ class Engine:
             else:
                 return "mkdir -p build && cd build && cmake .. && make -j$(nproc)"
         return cmd
+
+    def classify_errors(self, errs: list) -> str:
+        """Bucket build failures so we can stop retrying hopeless categories."""
+        text = "\n".join(errs)
+        if "Could not resolve" in text and re.search(r"status code 5\d\d", text):
+            return "upstream_outage"
+        if "Could not GET" in text and re.search(r"Failed to connect|Could not connect|Connection refused|timed out", text):
+            return "network_down"
+        if "OutOfMemoryError" in text or "Java heap space" in text:
+            return "oom"
+        return ""
 
     def parse_and_rescue(self, errors) -> bool:
         if not self.dep_mgr.in_docker:
@@ -462,6 +475,14 @@ class Engine:
                 build_ok = True
                 break
             else:
+                kind = self.classify_errors(errs)
+                if kind == "upstream_outage":
+                    UI.warn("Dependency repository unreachable (HTTP 5xx). "
+                            "This is an upstream outage, not a local problem - skipping retries.")
+                    build_errs = errs
+                    break
+                if kind == "oom":
+                    UI.warn("Build ran out of memory. Consider closing apps or lowering gradle jvmargs.")
                 if self.parse_and_rescue(errs):
                     UI.log(UI.GREEN, "AI-RESCUE   ", "Dependency installed successfully! Retrying build...")
                     attempt -= 1
