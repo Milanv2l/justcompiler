@@ -431,6 +431,29 @@ def test_project_name_overrides_root_name_in_manifest(tmp_path, make_engine):
     assert ok and manifest["projects"][0]["name"] == "syncthing"
     assert (out / "syncthing_out.bin").exists()
 
+# ------------------------------------------------------- python resolution
+
+def test_python_resolution_pyinstaller_spec(tmp_path, make_engine):
+    # Regression (LocalLens): a *.spec project must bundle via PyInstaller
+    e = make_engine(tmp_path / "src", tmp_path / "out")
+    p = tmp_path / "proj"; p.mkdir()
+    (p / "backend_server.spec").write_text("# spec")
+    (p / "requirements.txt").write_text("fastapi\n")
+    cmd = e.build_cmd(p, {"tool": "python3", "cmd_system": "DYNAMIC_PYTHON_RESOLUTION", "wrapper": ""}, 1)
+    assert cmd.startswith("pip3 install -r requirements.txt && pyinstaller")
+    assert "--distpath dist" in cmd and "backend_server.spec" in cmd
+
+
+def test_python_resolution_requirements_uses_rsync(tmp_path, make_engine):
+    # Regression (LocalLens): 'cp -r . dist/' refuses self-copy; rsync instead
+    e = make_engine(tmp_path / "src", tmp_path / "out")
+    p = tmp_path / "proj2"; p.mkdir()
+    (p / "requirements.txt").write_text("flask\n")
+    cmd = e.build_cmd(p, {"tool": "python3", "cmd_system": "DYNAMIC_PYTHON_RESOLUTION", "wrapper": ""}, 1)
+    assert cmd == ("pip3 install -r requirements.txt && mkdir -p dist && "
+                   "rsync -a --exclude dist ./ dist/")
+
+
 # ------------------------------------------------------- go build resolution
 
 def test_go_resolution_creates_output_dir(tmp_path, make_engine):

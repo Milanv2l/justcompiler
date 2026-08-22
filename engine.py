@@ -343,7 +343,18 @@ class Engine:
                 return "pip3 install build && python3 -m build --outdir dist"
             elif (root / "setup.py").exists():
                 return "python3 setup.py sdist bdist_wheel --dist-dir dist" if shutil.which("wheel") else "python3 setup.py sdist --dist-dir dist"
-            return "pip3 install -r requirements.txt && mkdir -p dist && cp -r . dist/" if (root / "requirements.txt").exists() else "python3 -m pip install --upgrade pip && pip3 install build && python3 -m build --outdir dist"
+            else:
+                specs = sorted(root.glob("*.spec"))
+                reqs = "pip3 install -r requirements.txt && " if (root / "requirements.txt").exists() else ""
+                if specs:
+                    # PyInstaller spec: real bundled artifacts instead of a source dump
+                    return (f"{reqs}pyinstaller --clean --noconfirm "
+                            f"--distpath dist --workpath build_pyinstaller \"{specs[0].name}\"")
+                # bare requirements project: mirror source into dist (rsync avoids
+                # the 'cp -r . dist/' self-copy refusal)
+                if (root / "requirements.txt").exists():
+                    return "pip3 install -r requirements.txt && mkdir -p dist && rsync -a --exclude dist ./ dist/"
+                return "python3 -m pip install --upgrade pip && pip3 install build && python3 -m build --outdir dist"
         elif cmd == "DYNAMIC_DART_RESOLUTION":
             if shutil.which("flutter"):
                 return "flutter build linux --release" if (root / "linux").exists() else "flutter build web --release"
