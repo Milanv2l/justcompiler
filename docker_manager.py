@@ -53,6 +53,32 @@ def _volume_name(target_path: Path) -> str:
     h = hashlib.sha256(str(target_path.resolve()).encode()).hexdigest()[:12]
     return f"justcompiler-{h}"
 
+def _prune_old_images(docker_cmd: list, repo: str, keep_tag: str = "", keep: int = 2):
+    """Remove old images of a repo by creation date, keeping the newest `keep` (plus keep_tag)."""
+    try:
+        listing = subprocess.run(
+            docker_cmd + ["images", "--format", "{{.ID}}|{{.Repository}}:{{.Tag}}|{{.CreatedAt}}", repo],
+            capture_output=True, text=True
+        )
+        if listing.returncode != 0 or not listing.stdout.strip():
+            return
+        entries = []
+        for line in listing.stdout.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) == 3 and parts[1] != "<none>":
+                entries.append((parts[0], parts[1], parts[2]))
+        # Newest first by CreatedAt string (docker format is sortable enough for same-host images)
+        entries.sort(key=lambda e: e[2], reverse=True)
+        protected = {e[1] for e in entries[:keep]}
+        if keep_tag:
+            protected.add(keep_tag)
+        for img_id, full_tag, _ in entries:
+            if full_tag not in protected:
+                subprocess.run(docker_cmd + ["rmi", "-f", img_id],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None) -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
@@ -82,7 +108,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         base_dockerfile_content = f"""FROM {base_image}
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
-    curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
+    curl wget unzip zip jq git rsync python3 python3-pip python3-venv build-essential g++ cmake \\
     qt6-base-dev qt6-tools-dev-tools openjdk-8-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
     php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
     libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
@@ -105,12 +131,12 @@ ENV PATH="$JAVA_HOME/bin:$PATH"
         base_hash = hashlib.sha256((base_image + base_dockerfile_content).encode()).hexdigest()[:12]
         base_tag = f"justcompiler-base:{base_hash}"
 
-        # STAP 1: Controleer of de zware basisomgeving (justcompiler-base) al lokaal bestaat
+        # STEP 1: Check if the heavy base environment (justcompiler-base) exists locally
         check_base = subprocess.run(docker_cmd + ["images", "-q", base_tag], capture_output=True, text=True)
 
         if not check_base.stdout.strip():
             set_status_fn(t('docker_building_base'))
-            UI.info("Basisomgeving niet gevonden of gewijzigd. Opnieuw bouwen...")
+            UI.info("Base image not found or changed. Rebuilding...")
             base_dockerfile_path = host_dir / "Dockerfile.base"
             try:
                 base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
@@ -118,10 +144,11 @@ ENV PATH="$JAVA_HOME/bin:$PATH"
             finally:
                 if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
         else:
-            UI.success(f"Basisomgeving {base_tag} beschikbaar")
+            UI.success(f"Base environment {base_tag} available")
+        _prune_old_images(docker_cmd, "justcompiler-base", keep_tag=base_tag, keep=2)
 
-        # STAP 2: Bouw de vederlichte engine layer (duurt < 0.5 seconde, hergebruikt de lokale basis)
-        set_status_fn("Snelkoppeling maken...")
+        # STAP 2: Build the featherlight engine layer (< 0.5s, reuses local base)
+        set_status_fn("Syncing engine layer...")
         
         dockerfile_content = f"""FROM {base_tag}
 WORKDIR /workspace
@@ -139,7 +166,7 @@ if [ -n "$JC_JAVA_VERSION" ] && [ -x "/opt/jdk$JC_JAVA_VERSION/bin/java" ]; then
 fi
 echo "JAVA_HOME=$JAVA_HOME ($(java -version 2>&1 | head -1))"
 if [ -d /workspace/src ]; then
-    cp -ur /workspace/src/. /workspace/persist/
+    rsync -a --delete /workspace/src/ /workspace/persist/
 fi
 exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/artifacts "$@"
 """
@@ -168,14 +195,27 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
 
     vol_name = _volume_name(target_path)
     subprocess.run(docker_cmd + ["volume", "create", vol_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _prune_old_images(docker_cmd, "justcompiler-engine", keep_tag=image_tag, keep=2)
 
-    # Alle cache-mappen worden nu daadwerkelijk gekoppeld aan de container voor optimaal hergebruik
+    # Optional sandbox hardening via config.json (all optional, safe defaults)
+    try:
+        cfg = json.loads((Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+
+    # All cache dirs are mounted into the container for optimal reuse
     subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"]
     if java_version:
         run_cmd += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
     else:
         run_cmd += ["-e", "PYTHONUNBUFFERED=1"]
+    if cfg.get("sandbox_network") is False:
+        run_cmd += ["--network", "none"]
+    if cfg.get("memory_limit"):
+        run_cmd += ["--memory", str(cfg["memory_limit"])]
+    if cfg.get("cpu_limit"):
+        run_cmd += ["--cpus", str(cfg["cpu_limit"])]
     run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",
@@ -195,10 +235,26 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         set_status_fn(t('docker_compiling_status'))
         t0 = time.time()
         UI.info(t('docker_compiling_status'))
-        result = subprocess.run(run_cmd)
+        log_lines = []
+        proc = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1, errors="replace")
+        try:
+            for line in proc.stdout:
+                print(line, end="")
+                log_lines.append(line)
+            proc.wait()
+        except KeyboardInterrupt:
+            proc.kill()
+            raise
+        returncode = proc.returncode
         elapsed = time.time() - t0
+        try:
+            artifacts_path.mkdir(exist_ok=True)
+            (artifacts_path / "build.log").write_text("".join(log_lines), encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
-        if result.returncode != 0:
+        if returncode != 0:
             set_status_fn(t('docker_failed_status'))
             UI.error(t('docker_failed_status'))
             return False

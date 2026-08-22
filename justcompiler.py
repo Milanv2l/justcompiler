@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.4.3"
+VERSION = "1.5.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -359,7 +359,7 @@ def _remove_alias():
             pass
 
 def handle_uninstall():
-    UI.warn("Uninstalling JustCompiler... / JustCompiler wordt verwijderd...")
+    UI.warn("Uninstalling JustCompiler...")
     confirm = input(f"{UI.CYAN}{UI.BOLD}Are you sure you want to uninstall JustCompiler? (y/n): {UI.RESET}").strip().lower()
     if confirm not in ['j', 'ja', 'y', 'yes']:
         sys.exit(0)
@@ -429,7 +429,7 @@ def handle_remote_git(url: str) -> Path:
         set_current_status("Awaiting branch selection")
         show_tui_header()
         
-        branch_lines = [f" [1] 🌟 Default / Standaard ({default_branch})"]
+        branch_lines = [f" [1] 🌟 Default ({default_branch})"]
         for idx, br in enumerate(other_branches, 2):
             branch_lines.append(f" [{idx}] 🌿 {br}")
         
@@ -498,11 +498,11 @@ def handle_settings(selected_lang):
         sys.stdout.flush()
         s = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('settings_prompt')}{UI.RESET}").strip()
         if s == "1":
-            UI.info("Language / Taal")
+            UI.info("Language")
             print("  [1] English")
             print("  [2] Nederlands")
             sys.stdout.flush()
-            c = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Choice / Keuze [1-2]: {UI.RESET}").strip()
+            c = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Choice [1-2]: {UI.RESET}").strip()
             new_lang = "nl" if c == "2" else "en"
             core.set_lang(new_lang)
             save_config(lang=new_lang)
@@ -523,65 +523,126 @@ def handle_settings(selected_lang):
             return selected_lang
 
 def _detect_package_manager():
-    """Return (pkg_manager_family, install_cmd_template) or None."""
+    """Return (pkg_manager_family, None) or (None, None)."""
     if platform.system() == "Windows":
-        for pm, check in [("winget", "winget"), ("choco", "choco"), ("scoop", "scoop")]:
-            if shutil.which(check):
-                return pm, "winget"
+        for pm in ("winget", "choco", "scoop"):
+            if shutil.which(pm):
+                return pm, None
         return None, None
-    # Linux
-    if shutil.which("apt"):
-        return "apt", "apt"
-    if shutil.which("pacman"):
-        return "pacman", "pacman"
-    if shutil.which("dnf"):
-        return "dnf", "dnf"
-    if shutil.which("zypper"):
-        return "zypper", "zypper"
+    for pm in ("apt", "pacman", "dnf", "zypper"):
+        if shutil.which(pm):
+            return pm, None
     return None, None
 
-def _build_install_cmd(deps: set, pm_family: str) -> list | None:
-    """Build a single install command for all deps under this package manager."""
-    pkgs = []
-    use_sudo = platform.system() != "Windows"
-    for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
-        if pm_family == "apt" and apt:
-            pkgs.extend(apt.split())
-        elif pm_family == "pacman" and pacman:
-            pkgs.extend(pacman.split())
-        elif pm_family == "dnf" and dnf:
-            pkgs.extend(dnf.split())
-        elif pm_family == "zypper" and dnf:  # zypper uses similar names
-            pkgs.extend(dnf.split())
-        elif pm_family == "winget" and winget:
-            pkgs.extend(winget.split())
-        elif pm_family == "choco" and choco:
-            pkgs.extend(choco.split())
-        elif pm_family == "scoop" and scoop:
-            pkgs.extend(scoop.split())
-    if not pkgs:
-        return None
-    if pm_family == "apt":
-        cmd = ["apt", "install", "-y"] + pkgs
-    elif pm_family == "pacman":
-        cmd = ["pacman", "-S", "--noconfirm"] + pkgs
-    elif pm_family == "dnf":
-        cmd = ["dnf", "install", "-y"] + pkgs
-    elif pm_family == "zypper":
-        cmd = ["zypper", "install", "-y"] + pkgs
-    elif pm_family == "winget":
-        cmd = ["winget", "install", "--accept-package-agreements"] + pkgs
-    elif pm_family == "choco":
-        cmd = ["choco", "install", "-y"] + pkgs
-    elif pm_family == "scoop":
-        cmd = ["scoop", "install"] + pkgs
-    else:
-        return None
-    if use_sudo:
-        cmd = ["sudo"] + cmd
-    return cmd
+def _filter_installed(pkgs: list, pm_family: str) -> list:
+    """Return only the packages that are NOT installed yet."""
+    if platform.system() == "Windows" or not pkgs:
+        return pkgs
+    checker = {"apt": ["dpkg", "-s"], "pacman": ["pacman", "-Q"],
+               "dnf": ["rpm", "-q"], "zypper": ["rpm", "-q"]}.get(pm_family)
+    if not checker:
+        return pkgs
+    missing = []
+    for p in pkgs:
+        try:
+            if subprocess.run(checker + [p], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode != 0:
+                missing.append(p)
+        except Exception:
+            missing.append(p)
+    return missing
 
-def _show_runtime_hints(build_folder: Path):
+def _build_install_cmds(deps: set, pm_family: str) -> list:
+    """Build install command(s) for all deps under this package manager.
+    Returns a list of argv lists (winget gets one command per package)."""
+    pkgs = []
+    for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
+        field = {"apt": apt, "pacman": pacman, "dnf": dnf, "zypper": dnf,
+                 "winget": winget, "choco": choco, "scoop": scoop}.get(pm_family, "")
+        if field:
+            pkgs.extend(w for w in field.split() if w not in pkgs)
+    if not pkgs:
+        return []
+    if pm_family == "winget":
+        return [["winget", "install", "--id", p, "-e",
+                 "--accept-package-agreements", "--accept-source-agreements"] for p in pkgs]
+    base_cmd = {
+        "apt": ["apt", "install", "-y"],
+        "pacman": ["pacman", "-S", "--noconfirm"],
+        "dnf": ["dnf", "install", "-y"],
+        "zypper": ["zypper", "install", "-y"],
+        "choco": ["choco", "install", "-y"],
+        "scoop": ["scoop", "install"],
+    }[pm_family]
+    return [(["sudo"] if platform.system() != "Windows" else []) + base_cmd + pkgs]
+
+def _norm_token(s: str) -> str:
+    return re.sub(r"[^a-z]", "", s.lower())
+
+_ERROR_TOKEN_EXPAND = {
+    "gi": ["pygobject", "gir", "glib"],
+}
+
+def _dep_tokens(dep: tuple) -> set:
+    _, apt, pacman, dnf, winget, choco, scoop = dep
+    words = [dep[0]]
+    for f in (apt, pacman, dnf, winget, choco, scoop):
+        words.extend(f.split())
+    toks = set()
+    for w in words:
+        n = _norm_token(w)
+        if n:
+            toks.add(n)
+            if n.startswith("lib") and len(n) > 3:
+                toks.add(n[3:])
+    return toks
+
+def _extract_error_tokens(text: str) -> set:
+    toks = set()
+
+    def add(s):
+        n = _norm_token(s)
+        if n:
+            toks.add(n)
+            toks.update(_ERROR_TOKEN_EXPAND.get(n, []))
+
+    for m in re.finditer(r"No module named '([\w.]+)'", text):
+        add(m.group(1))
+    for m in re.finditer(r"ImportError: cannot import name '[\w.]+' from '([\w.]+)'", text):
+        add(m.group(1))
+    for m in re.finditer(r"Namespace (\w+) not available", text):
+        add(m.group(1))
+    for m in re.finditer(r"error while loading shared libraries: ([\w.+-]+)\.so", text):
+        add(m.group(1))
+    for m in re.finditer(r"(?:ImportError|OSError):\s*(?:lib)?([\w+-]+)[\w.]*(?:\.so[\w.]*)?.{0,80}(?:cannot open shared object file|No such file)", text):
+        add(m.group(1))
+    for m in re.finditer(r"([\w./-]+): command not found", text):
+        add(Path(m.group(1)).name)
+    for m in re.finditer(r"'([\w.-]+)' is not recognized", text):
+        add(m.group(1))
+    for m in re.finditer(r"(?:Cannot find|Could not find) module[^'\n]*'([\w.-]+)'", text):
+        add(m.group(1))
+    if "Unsupported class file major version" in text or "has been compiled by a more recent version" in text:
+        add("java")
+    return toks
+
+def _match_error_to_deps(text: str, deps: set) -> list:
+    """Return the deps whose tokens match error output tokens."""
+    err_toks = _extract_error_tokens(text)
+    matched = []
+    for dep in sorted(deps):
+        dtoks = _dep_tokens(dep)
+        for et in err_toks:
+            for dt in dtoks:
+                if et == dt or (len(et) >= 3 and et in dt) or (len(dt) >= 4 and dt in et):
+                    matched.append(dep)
+                    break
+            else:
+                continue
+            break
+    return matched
+
+def _show_runtime_hints(build_folder: Path, output_text: str = ""):
     manifest_file = build_folder / "build_manifest.json"
     try:
         manifest = json.loads(manifest_file.read_text())
@@ -601,32 +662,50 @@ def _show_runtime_hints(build_folder: Path):
             ))
     if not deps:
         return
+    matched = _match_error_to_deps(output_text, deps) if output_text else []
+    shown, source_label = (matched, "matched from error output") if matched else (sorted(deps), "")
     pm_family, _ = _detect_package_manager()
+    title = "Possible missing runtime dependencies"
+    if matched:
+        title += " (matched from error output)"
     lines = []
-    for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
+    for pkg, apt, pacman, dnf, winget, choco, scoop in shown:
         if not pkg:
             continue
         entry = [f"• {pkg}"]
-        if apt: entry.append(f"  apt: sudo apt install {apt}")
-        if pacman: entry.append(f"  pacman: sudo pacman -S {pacman}")
-        if dnf: entry.append(f"  dnf: sudo dnf install {dnf}")
-        if winget: entry.append(f"  winget: winget install {winget}")
-        if choco: entry.append(f"  choco: choco install {choco}")
-        if scoop: entry.append(f"  scoop: scoop install {scoop}")
+        if apt: entry.append(f"  Debian/Ubuntu : sudo apt install {apt}")
+        if pacman: entry.append(f"  Arch          : sudo pacman -S {pacman}")
+        if dnf: entry.append(f"  Fedora        : sudo dnf install {dnf}")
+        if winget: entry.append(f"  Windows       : winget install {winget}")
+        if choco: entry.append(f"  Windows       : choco install {choco}")
+        if scoop: entry.append(f"  Windows       : scoop install {scoop}")
         lines.extend(entry)
     if hasattr(UI, 'draw_panel'):
-        UI.draw_panel("Possible missing runtime dependencies", lines, color=UI.YELLOW)
+        UI.draw_panel(title, lines, color=UI.YELLOW)
     else:
-        UI.warn("Possible missing runtime dependencies")
+        UI.warn(title)
         for l in lines: print(f"  {l}")
     if pm_family:
         ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}").strip().lower()
-        if ans in ('y', 'yes', 'j', 'ja'):
-            cmd = _build_install_cmd(deps, pm_family)
-            if cmd:
-                UI.info(f"Running: {' '.join(cmd)}")
+        if ans in ('y', 'yes'):
+            dep_set = set(matched) if matched else deps
+            all_cmds = _build_install_cmds(dep_set, pm_family)
+            if not all_cmds:
+                UI.warn("No installable packages found for this platform.")
+                return
+            for c in all_cmds:
+                off = 1 if c[0] == "sudo" else 0
+                tool, args = c[off], c[off + 1:]
+                pkg_args = [a for a in args if not a.startswith("-")]
+                if tool in ("apt", "pacman", "dnf", "zypper") and pkg_args:
+                    missing = _filter_installed(pkg_args, tool)
+                    if not missing:
+                        UI.success(f"{', '.join(pkg_args)} already installed, skipping")
+                        continue
+                    c = list(c[:off + 1]) + [a for a in args if a.startswith("-")] + missing
+                UI.info(f"Running: {' '.join(c)}")
                 try:
-                    subprocess.run(cmd)
+                    subprocess.run(c)
                 except Exception as e:
                     UI.error(f"Install failed: {e}")
 
@@ -929,7 +1008,7 @@ if __name__ == "__main__":
             print("  [1] English (Default)")
             print("  [2] Nederlands")
             sys.stdout.flush()
-            lang_choice = input(f"\n{UI.CYAN}{UI.BOLD}Choice / Keuze [1-2]: {UI.RESET}").strip()
+            lang_choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Choice [1-2]: {UI.RESET}").strip()
             selected_lang = "nl" if lang_choice == "2" else "en"
             save_config(lang=selected_lang)
 
@@ -1024,9 +1103,24 @@ if __name__ == "__main__":
                     args = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('artifact_args')}{UI.RESET}").strip()
                     if args:
                         cmd.extend(args.split())
-                    res = subprocess.run(cmd, shell=platform.system() == "Windows", cwd=cwd)
-                    if res.returncode != 0:
-                        _show_runtime_hints(build_folder)
+                    run_log = []
+                    proc = subprocess.Popen(cmd, shell=platform.system() == "Windows", cwd=cwd,
+                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, bufsize=1, errors="replace")
+                    try:
+                        for line in proc.stdout:
+                            print(line, end="")
+                            run_log.append(line)
+                        proc.wait()
+                    except KeyboardInterrupt:
+                        proc.kill()
+                        raise
+                    try:
+                        (build_folder / "run.log").write_text("".join(run_log), encoding="utf-8", errors="replace")
+                    except Exception:
+                        pass
+                    if proc.returncode != 0:
+                        _show_runtime_hints(build_folder, "".join(run_log))
             ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('open_folder')} ").strip().lower()
             if ans in ['j', 'ja', 'y', 'yes']:
                 if platform.system() == "Windows":
