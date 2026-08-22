@@ -361,6 +361,19 @@ def test_auto_select_pure_java_still_gradle(tmp_path):
     assert jc._auto_select_target(tmp_path, targets) == "Java (Gradle)"
 
 
+def test_auto_select_pnpm_lock_beats_scattered_package_json(tmp_path):
+    # Regression (vite): package.json appears in every monorepo subdir and
+    # outnumbers pnpm-lock.yaml; root markers must dominate.
+    _write(tmp_path, "package.json", "{}")
+    _write(tmp_path, "pnpm-lock.yaml", "")
+    _write(tmp_path, "pnpm-workspace.yaml", "packages:\n")
+    for sub in ("packages/a", "packages/b", "docs", "scripts"):
+        _write(tmp_path, sub + "/package.json", "{}")
+    _write(tmp_path, "packages/a/vite.config.ts", "")
+    targets = jc._scan_targets(tmp_path)
+    assert jc._auto_select_target(tmp_path, targets) == "Node.js (PNPM)"
+
+
 def test_auto_select_single_target(tmp_path):
     _write(tmp_path, "pom.xml", "<project/>")
     targets = jc._scan_targets(tmp_path)
@@ -418,6 +431,15 @@ def test_heap_clamp_formula():
     for avail, expect in [(0.5, 2), (2.0, 2), (4.0, 2), (6.0, 4), (20.0, 12), (30.0, 12)]:
         heap = max(2, min(12, int(avail * 0.7)))
         assert heap == expect, avail
+
+# ------------------------------------------------------- main-artifact score
+
+def test_test_binaries_demoted_in_picker():
+    # Regression (fmt): CMake test-suite binaries outranked everything
+    assert jc._is_main_artifact("fmt_args-test", "binary", 500_000) is False
+    assert jc._is_main_artifact("foo.test", "binary", 500_000) is False
+    assert jc._is_main_artifact("alacritty", "binary", 5_000_000) is True
+
 
 # ------------------------------------------------------------ version sync
 

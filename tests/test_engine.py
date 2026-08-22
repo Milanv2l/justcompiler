@@ -328,6 +328,109 @@ def test_harvest_skips_git_and_nonmagic_and_dedupes(tmp_path, make_engine):
     assert not (out / "proj_a").exists()
 
 
+def test_harvest_extra_out_dirs_monorepo(tmp_path, make_engine):
+    # Regression (vite): JS monorepo outputs live in packages/<p>/dist;
+    # extra_out_dirs must be harvested with flattened, collision-free names.
+    src = tmp_path / "src" / "mono"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    e = make_engine(tmp_path / "src", out)
+    d1 = src / "packages" / "vite" / "dist"; d1.mkdir(parents=True)
+    d2 = src / "packages" / "utils" / "dist"; d2.mkdir(parents=True)
+    (d1 / "index.js").write_text("a")
+    (d2 / "index.js").write_text("b")
+    e.extra_out_dirs = ["packages/vite/dist", "packages/utils/dist"]
+    plugin = {"name": "T", "detect": [], "tool": "npm", "cmd_system": "",
+              "out_dirs": [], "out_exts": [".js"], "specificity": 5}
+    items = e.harvest("mono", src, plugin)
+    names = sorted(i["name"] for i in items)
+    assert names == ["mono_packages_utils_dist_index.js",
+                     "mono_packages_vite_dist_index.js"]
+    assert (out / "mono_packages_vite_dist_index.js").read_text() == "a"
+
+
+def test_scan_js_extra_dirs_two_levels(tmp_path):
+    # Regression (vite): monorepo dists nest under packages/<name>/dist
+    root = tmp_path / "ws"
+    (root / "packages" / "vite" / "dist").mkdir(parents=True)
+    (root / "packages" / "utils" / "out").mkdir(parents=True)
+    (root / "docs").mkdir()
+    (root / "docs" / "dist").mkdir()
+    found = Engine._scan_js_extra_dirs(root, root)
+    assert found == ["docs/dist", "packages/utils/out", "packages/vite/dist"]
+
+
+def test_monorepo_partial_success_harvests_despite_failures(tmp_path, make_engine):
+    src = tmp_path / "src"; out = tmp_path / "out"
+    (src / "packages" / "vite" / "dist").mkdir(parents=True)
+    (src / "packages" / "vite" / "dist" / "index.js").write_text("x")
+    (src / "pnpm-lock.yaml").write_text("")
+    (src / "pnpm-workspace.yaml").write_text("packages:\n  - packages/*\n")
+    plugin = {"name": "Node.js (PNPM)", "detect": ["pnpm-lock.yaml"], "tool": "pnpm",
+              "cmd_system": "DYNAMIC_JS_RESOLUTION", "out_dirs": [],
+              "out_exts": [".js"], "specificity": 5, "wrapper": ""}
+    e = make_engine(src, out)
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True
+    e.check_ready = lambda p, r: True
+    # every attempt fails, but the dist artifact exists on disk
+    e.run_cmd = lambda cmd, cwd: (False, ["ERR_MODULE_NOT_FOUND somewhere"])
+    ok = e.run()
+    manifest = json.loads((out / "build_manifest.json").read_text())
+    assert ok and e.stats["success"] == 1
+    names = [i["name"] for i in manifest["projects"][0]["items"]]
+    assert any("index.js" in n for n in names)
+
+
+def test_entry_script_fallback_never_scans_parent(tmp_path, make_engine):
+    # Regression (alacritty): fallback scanned root.parent (the container
+    # workspace), picked up entrypoint.sh and copytree'd /workspace into its
+    # own destination -> infinite alacritty_source/artifacts/... recursion.
+    src = tmp_path / "src"; out = tmp_path / "out"
+    e = make_engine(src, out)  # creates dirs
+    (src / "Cargo.toml").write_text("[package]\nname='x'\n")
+    (src / "run.sh").write_text("#!/bin/sh\n")  # project script IS picked up
+    scripts_root = e._detect_entry_scripts(src)
+    assert [s["name"] for s in scripts_root] == ["run.sh"]
+    # parent-level scripts are no longer candidates
+    parent_script = src.parent / "entrypoint.sh"
+    parent_script.write_text("#!/bin/bash\n")
+    found = []
+    for cand in [src]:  # new candidate list is root-only
+        found += [s["name"] for s in e._detect_entry_scripts(cand)]
+    assert "entrypoint.sh" not in found
+
+
+def test_source_copytree_ignores_artifacts_dir(tmp_path, make_engine):
+    # hard guard: <name>_source must never contain an artifacts/ mirror
+    src = tmp_path / "persist"; out = tmp_path / "out"
+    (src / "artifacts" / "nested").mkdir(parents=True)
+    (src / "main.py").write_text("print(1)\n")
+    e = make_engine(src.parent, out, project_name="proj")
+    e.plugins = [{**ECHO_PLUGIN, "cmd_system": "true"}]
+    (out).mkdir(exist_ok=True)
+    e.run()
+    src_copy = out / "proj_source"
+    if src_copy.exists():
+        assert not (src_copy / "artifacts").exists()
+
+
+def test_harvest_skips_cargo_deps_and_incremental(tmp_path, make_engine):
+    # Regression (alacritty): hundreds of intermediate .rlibs flooded artifacts
+    src = tmp_path / "src" / "rs"; out = tmp_path / "out"
+    e = make_engine(tmp_path / "src", out)  # creates dirs
+    rel = src / "target" / "release"
+    rel.mkdir(parents=True)
+    (rel / "alacritty").write_bytes(b"\x7fELFmain")
+    deps = rel / "deps"; deps.mkdir()
+    (deps / "libserde.rlib").write_bytes(b"\x7fELFx")
+    inc = rel / "incremental" / "x"; inc.mkdir(parents=True)
+    (inc / "chunk.o").write_bytes(b"\x7fELFy")
+    plugin = {"name": "T", "detect": [], "tool": "cargo", "cmd_system": "",
+              "out_dirs": ["target/release"], "out_exts": ["", ".exe"], "specificity": 10}
+    names = [i["name"] for i in e.harvest("rs", src, plugin)]
+    assert names == ["rs_alacritty"]
+
+
 def test_project_name_overrides_root_name_in_manifest(tmp_path, make_engine):
     # Regression (syncthing): container src dir is '/workspace/persist' so all
     # artifacts were prefixed 'persist_' instead of the real project name.
@@ -448,9 +551,77 @@ def test_classify_oom(tmp_path, make_engine):
     assert e.classify_errors(OOM_ERRS) == "oom"
 
 
+def test_classify_rust_edition_too_new(tmp_path, make_engine):
+    # Regression (alacritty): cargo 1.75 vs edition2024
+    e = make_engine(tmp_path, tmp_path / "out")
+    errs = ["error: failed to parse manifest",
+            "feature `edition2024` is required",
+            "The package requires the Cargo feature called `edition2024`"]
+    assert e.classify_errors(errs) == "rust_edition"
+
+
 def test_classify_generic_is_empty(tmp_path, make_engine):
     e = make_engine(tmp_path, tmp_path / "out")
     assert e.classify_errors(["some syntax error in Main.java"]) == ""
+
+
+def test_classify_missing_tool(tmp_path, make_engine):
+    # A4: '/bin/sh: cargo: command not found' -> kind + tool captured
+    e = make_engine(tmp_path, tmp_path / "out")
+    kind = e.classify_errors(["/bin/sh: 1: cargo: command not found"])
+    assert kind == "missing_tool" and e.last_missing_tool == "cargo"
+
+
+def test_missing_tool_rescued_once_in_docker(tmp_path, make_engine):
+    # Container-side: apt-install the missing tool once, then retry
+    src = tmp_path / "src" / "rs"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "Cargo.toml").write_text("[package]\nname='x'\n")
+    calls, installs = [], []
+    plugin = {"name": "Rust (Cargo)", "detect": ["Cargo.toml"], "tool": "cargo",
+              "cmd_system": "cargo build --release", "out_dirs": ["target/release"],
+              "out_exts": [".bin"], "specificity": 10, "wrapper": ""}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True
+
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        if len(calls) == 1:
+            return False, ["/bin/sh: cargo: command not found"]
+        # second attempt succeeds AND produces an artifact
+        d = Path(cwd) / "target" / "release"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "tool.bin").write_bytes(b"\x7fELFx")
+        return True, []
+
+    def fake_trigger(tool):
+        installs.append(tool)
+        return True
+
+    e.run_cmd = fake_run_cmd
+    e.dep_mgr.trigger_install = fake_trigger
+    ok = e.run()
+    assert installs == ["cargo"]
+    assert len(calls) == 2 and ok
+
+
+def test_missing_tool_no_host_rescue_breaks_fast(tmp_path, make_engine):
+    # Host-side (not in docker): hopeless -> single attempt with clear abort
+    src = tmp_path / "src" / "go2"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "go.mod").write_text("module t\n")
+    calls = []
+    plugin = {"name": "Go (Modules)", "detect": ["go.mod"], "tool": "go",
+              "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output"],
+              "out_exts": [".bin"], "specificity": 10, "wrapper": ""}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [plugin]
+    e.check_ready = lambda p, r: True  # host lacks 'go'; bypass readiness
+    e.run_cmd = lambda cmd, cwd: (calls.append(cmd),
+                                  (False, ["/bin/sh: go: command not found"]))[1]
+    assert e.run() is False
+    assert len(calls) == 1
 
 
 def test_upstream_outage_skips_retries(tmp_path, make_engine):

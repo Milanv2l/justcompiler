@@ -35,7 +35,38 @@ The first launch downloads/builds the sandbox base image (~5–10 min, once per 
 [4] Exit
 ```
 
-After a successful build you get an artifact picker; selecting one runs it immediately. If it crashes due to a missing library, the matched dependency panel appears with distro-specific install commands and an auto-install prompt.
+### Headless CLI
+
+```bash
+python3 justcompiler.py --build <path>              # compile, no interaction; exit 0/1/2
+python3 justcompiler.py --build <path> --target "Minecraft Mod (Fabric/Forge/Quilt)"
+```
+
+`--build` skips the menu and artifact execution — ideal for scripting and CI.
+Exit codes: `0` build succeeded, `1` build failed, `2` path missing.
+
+After a successful interactive build you get an artifact picker; selecting one
+runs it immediately. If it crashes due to a missing library, the matched
+dependency panel appears with distro-specific install commands and an
+auto-install prompt.
+
+## Self-healing builds
+
+Inside the sandbox the engine retries failures with targeted rescues:
+
+| Failure signature | Automatic response |
+|---|---|
+| Missing system header/lib (`fatal error: zlib.h`, `-lz`) | apt-installs mapped dev package |
+| Missing Python module / Node module / Ruby gem | pip / npm -g / gem install |
+| Missing build tool (`cargo: command not found`) | apt-installs tool once, retries |
+| Rust `edition2024` required (distro cargo too old) | bootstraps current rustup toolchain, retries |
+| Go `undefined: auto.*` (ungenerated embedded assets) | retries once with `-tags noassets` |
+| pnpm 10 build-script approval (would block forever) | sandbox runs with `CI=1` — all installs non-interactive |
+| Maven repo HTTP 5xx | fails fast — upstream outage is not retried |
+| Gradle heap vs host RAM | heap clamped to ~70% of available memory before launch |
+
+Long-running steps print a heartbeat every 30s with the latest output line, so
+silent phases (dependency downloads) never look like a hang.
 
 ## Configuration (`config.json`)
 
@@ -44,6 +75,9 @@ After a successful build you get an artifact picker; selecting one runs it immed
   "check_updates": true,       // check GitHub for new releases at startup
   "lang": "en",                // interface language: "en" | "nl"
   "base_image": "ubuntu:24.04",
+  "profile": "full",           // "full" = every toolchain preinstalled (~GBs)
+                               // "slim" = essentials only; engine auto-installs
+                               //         missing tools on demand (fast first build)
   "theme": "default",          // "default" | "minimal" (no panel borders)
   "run_tests": false,          // pass --test to the engine where supported
 
@@ -55,6 +89,15 @@ After a successful build you get an artifact picker; selecting one runs it immed
 ```
 
 > Note: disabling `sandbox_network` breaks builds that need to download dependencies from the internet.
+> Switching `profile` builds a second base image alongside the other profile (both are kept).
+
+## Cleanup
+
+```bash
+python3 justcompiler.py clean                 # keep newest 10 build folders
+python3 justcompiler.py clean --keep 3        # keep newest 3
+python3 justcompiler.py clean --volumes-old 30 # auto-remove project volumes untouched >30 days
+```
 
 ## Plugin format (`plugins.json`)
 

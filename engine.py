@@ -23,6 +23,9 @@ class Engine:
         self.manifest_data = {"build_time_utc": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), "projects": []}
         self.dep_mgr = DependencyManager(auto_install=auto_install)
         self._go_noassets = False
+        self.last_missing_tool = ""
+        self._rescued_tools = set()
+        self.extra_out_dirs = []
 
         with open(self.log_file, "w", encoding="utf-8") as f:
             f.write(f"=== UNIVERSAL ENGINE LOG ===\n\n")
@@ -76,6 +79,7 @@ class Engine:
                                   "cannot find", "could not resolve", "could not get",
                                   "status code 5", "connection refused", "failed to connect"], [], []
         t0 = time.time()
+        last_beat = t0
 
         with open(self.log_file, "a", encoding="utf-8") as log:
             log.write(f"\n--- RUN: {cmd} ---\n")
@@ -84,6 +88,12 @@ class Engine:
                 log.write(line)
                 log.flush()
                 all_output.append(line.rstrip())
+                now = time.time()
+                if now - last_beat >= 30:
+                    # long-running step: surface a heartbeat with the latest activity
+                    snippet = (all_output[-1] if all_output else "")[:60]
+                    UI.log(UI.BLUE, t('act_build'), f"still running ({int(now - t0)}s) {snippet}")
+                    last_beat = now
                 if any(k in line.lower() for k in kw) and len(errors) < 30:
                     stripped = line.strip()
                     if stripped and stripped not in errors:
@@ -124,7 +134,8 @@ class Engine:
     def harvest(self, name: str, root: Path, plugin: dict) -> list:
         items = []
         seen = set()
-        for out_dir in plugin["out_dirs"]:
+        out_dirs = list(plugin["out_dirs"]) + list(getattr(self, "extra_out_dirs", []))
+        for out_dir in out_dirs:
             for base in [root] + list(root.parents)[:2]:
 
                 if not str(base.resolve()).startswith(str(self.src_root)):
@@ -150,6 +161,11 @@ class Engine:
                                     continue
                                 if ".git" in f.parts or "node_modules" in f.parts:
                                     continue
+                                # cargo internals: intermediate libs & fingerprints
+                                if "deps" in f.parts or "incremental" in f.parts:
+                                    continue
+                                if "target" in f.parts and "build" in f.parts:
+                                    continue
                                 if f.name.startswith('.'):
                                     continue
                                 if f.suffix:
@@ -161,10 +177,20 @@ class Engine:
                                     ok = self._looks_executable(f)
                                 if not ok:
                                     continue
-                                dest_f = self.out_root / f"{name}_{f.name}"
-                                if str(dest_f) in seen:
+                                rel = f.relative_to(target)
+                                if out_dir in getattr(self, "extra_out_dirs", []):
+                                    # monorepo extras: include the dist path so
+                                    # same-named outputs across packages stay unique
+                                    flat = out_dir.replace('/', '_') + "_" + "_".join(rel.parts)
+                                elif len(rel.parts) > 1:
+                                    flat = "_".join(rel.parts)
+                                else:
+                                    flat = f.name
+                                dest_f = self.out_root / f"{name}_{flat}"
+                                src_key = str(f.resolve())
+                                if src_key in seen:
                                     continue
-                                seen.add(str(dest_f))
+                                seen.add(src_key)
                                 shutil.copy2(f, dest_f)
                                 items.append({"name": dest_f.name})
                                 UI.log(UI.GREEN, t('act_saved'), f"File -> {dest_f.name}")
@@ -236,6 +262,29 @@ class Engine:
                 break
         return None
 
+    @staticmethod
+    def _scan_js_extra_dirs(ws_root: Path, root: Path) -> list:
+        """Collect <pkg>/dist|out output dirs up to two levels deep
+        (vite-style monorepos nest under packages/<name>/dist)."""
+        found = []
+        level0 = [p for p in sorted(ws_root.iterdir()) if p.is_dir()
+                  and not p.name.startswith(".") and p.name != "node_modules"]
+        candidates = [ws_root]
+        for d in level0:
+            candidates.append(d)
+            candidates.extend(p for p in sorted(d.iterdir())
+                              if p.is_dir() and not p.name.startswith(".")
+                              and p.name != "node_modules")
+        for d in candidates:
+            for od in ("dist", "out"):
+                out = d / od
+                if out.is_dir():
+                    try:
+                        found.append(str(out.relative_to(root)))
+                    except ValueError:
+                        pass
+        return sorted(set(found))
+
     def build_cmd(self, root, plugin, attempt):
         cmd, tool = plugin.get("cmd_system", ""), plugin["tool"]
         wrap = self.find_wrapper(root, plugin.get("wrapper", ""))
@@ -246,6 +295,17 @@ class Engine:
 
         if cmd == "DYNAMIC_JS_RESOLUTION":
             ws = self._find_workspace_root(root)
+            self.extra_out_dirs = []
+            if ws and ws["type"] == "pnpm":
+                install_cmd = "pnpm install --no-frozen-lockfile"
+                if attempt == 1:
+                    build_cmd = "pnpm run -r build"
+                elif attempt == 2:
+                    # don't let one failing playground abort the other packages
+                    build_cmd = "pnpm -r --no-bail run build"
+                else:
+                    build_cmd = "pnpm run build"
+                return f"{install_cmd} && {build_cmd}"
             if ws:
                 t = ws["type"]
                 if t == "pnpm":
@@ -303,11 +363,52 @@ class Engine:
             return "network_down"
         if "OutOfMemoryError" in text or "Java heap space" in text:
             return "oom"
+        m = re.search(r"(?:^|[\s/])((?::\d+:)?\s*[\w@+.-]+): command not found", text, re.M)
+        if m:
+            self.last_missing_tool = Path(m.group(1)).name
+            return "missing_tool"
+        if re.search(r"feature \`edition\d+\` is required|requires the Cargo feature called", text):
+            return "rust_edition"
         return ""
 
     def parse_and_rescue(self, errors) -> bool:
         if not self.dep_mgr.in_docker:
             return False
+
+        # Missing build tool (e.g. 'cargo: command not found') -> apt-install once
+        for err in errors:
+            m = re.search(r"(?:^|[\s/])((?::\d+:)?\s*[\w@+.-]+): command not found", err, re.M)
+            if m:
+                tool = Path(m.group(1)).name
+                if tool and tool not in self._rescued_tools:
+                    self._rescued_tools.add(tool)
+                    pkg = self.dep_mgr.pkg_for_tool(tool)
+                    UI.log(UI.MAGENTA, "AI-RESCUE   ", f"Missing build tool: {tool} (installing {pkg})")
+                    if self.dep_mgr.trigger_install(tool):
+                        UI.log(UI.GREEN, "AI-RESCUE   ", f"Installed tool: {pkg}")
+                        return True
+                    self._rescued_tools.discard(tool)
+
+        # Modern Rust edition on old distro cargo -> bootstrap current rustup once
+        text = "\n".join(errors)
+        if re.search(r"feature \`edition\d+\` is required|requires the Cargo feature called", text):
+            if "rustup" not in self._rescued_tools:
+                self._rescued_tools.add("rustup")
+                UI.log(UI.MAGENTA, "AI-RESCUE   ", "Rust edition too new for this cargo (installing current rustup toolchain)")
+                try:
+                    res = subprocess.run(
+                        ["bash", "-lc",
+                         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y "
+                         "--default-toolchain stable --profile minimal"],
+                        capture_output=True, timeout=600)
+                    subprocess.run(["bash", "-lc", "source $HOME/.cargo/env || true"], capture_output=True)
+                    if res.returncode == 0:
+                        os.environ["PATH"] = f"/root/.cargo/bin:{os.environ.get('PATH', '')}"
+                        UI.log(UI.GREEN, "AI-RESCUE   ", "rustup installed; retrying build")
+                        return True
+                except Exception:
+                    pass
+                self._rescued_tools.discard("rustup")
 
         RESCUE_DICTIONARY = {
             "openssl/ssl.h": "libssl-dev",
@@ -387,8 +488,8 @@ class Engine:
 
             node_match = re.search(r"Error:\s+Cannot find module ['\"]([^'\"]+)['\"]", err)
             if not node_match:
-                node_match = re.search(r"MODULE_NOT_FOUND.*['\"]?([a-zA-Z0-9_\-@/]+)['\"]?", err)
-            if node_match:
+                node_match = re.search(r"MODULE_NOT_FOUND.*['\"]?([\w@/-]+)['\"]?", err)
+            if node_match and len(node_match.group(1)) > 1:
                 pkg = node_match.group(1).split('/')[0]
                 if pkg.startswith('@'):
                     pkg = node_match.group(1).split('/')[0] + '/' + node_match.group(1).split('/')[1]
@@ -506,6 +607,10 @@ class Engine:
             if ok:
                 dur = round(time.time() - t0, 1)
                 UI.log(UI.GREEN, t('act_ready'), f"{name} in {dur}s")
+                if plugin.get("tool") in ("npm", "pnpm", "yarn", "bun"):
+                    ws = self._find_workspace_root(root)
+                    if ws:
+                        self.extra_out_dirs = self._scan_js_extra_dirs(ws["root"], root)
                 artifacts = self.harvest(name, root, plugin)
                 if artifacts:
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": artifacts})
@@ -530,6 +635,11 @@ class Engine:
                     continue
                 if kind == "oom":
                     UI.warn("Build ran out of memory. Consider closing apps or lowering gradle jvmargs.")
+                if kind == "missing_tool" and not self.dep_mgr.in_docker:
+                    UI.warn(f"Build tool '{self.last_missing_tool}' is not installed on this host "
+                            f"and cannot be auto-installed outside the sandbox. Aborting retries.")
+                    build_errs = errs
+                    break
                 if self.parse_and_rescue(errs):
                     UI.log(UI.GREEN, "AI-RESCUE   ", "Dependency installed successfully! Retrying build...")
                     attempt -= 1
@@ -540,11 +650,28 @@ class Engine:
                     print(f"   {UI.RED}• {e}{UI.RESET}")
             UI.log(UI.YELLOW, t('act_retry'), t('fallback_msg'))
 
+        # Monorepo partial success: even when some workspace tasks failed,
+        # harvest whatever outputs DID materialize before giving up.
+        if not build_ok and plugin.get("tool") in ("npm", "pnpm", "yarn", "bun"):
+            ws = self._find_workspace_root(root)
+            if ws:
+                self.extra_out_dirs = self._scan_js_extra_dirs(ws["root"], root)
+            artifacts = self.harvest(name, root, plugin)
+            if artifacts:
+                dur = round(time.time() - t0, 1)
+                UI.log(UI.YELLOW, "PARTIAL     ",
+                       f"{len(artifacts)} artifact(s) harvested despite workspace task failures")
+                self.manifest_data["projects"].append({"name": name, "lang": plugin["name"],
+                                                       "time": dur, "items": artifacts})
+                self.stats["success"] += 1
+                return
+
         if build_ok:
             dur = round(time.time() - t0, 1)
+            # Only the project root itself may ship entry scripts. Scanning
+            # root.parent once copied the whole container workspace (including
+            # our own artifacts dir) into <name>_source -> infinite recursion.
             candidates = [root]
-            if root.parent and root.parent != root:
-                candidates.append(root.parent)
             for root_candidate in candidates:
                 scripts = self._detect_entry_scripts(root_candidate)
                 if scripts:
@@ -559,7 +686,12 @@ class Engine:
                         UI.log(UI.GREEN, t('act_saved'), f"Script -> {dest.name}")
                     proj_dest = self.out_root / f"{name}_source"
                     if not proj_dest.exists():
-                        shutil.copytree(root_candidate, proj_dest, ignore=shutil.ignore_patterns('.*', 'node_modules', 'venv', '__pycache__', 'build', 'target', 'dist', 'bin'), dirs_exist_ok=True)
+                        # hard guard: never copy a tree into (a copy of) itself
+                        ignore = shutil.ignore_patterns('.*', 'node_modules', 'venv',
+                                                        '__pycache__', 'build', 'target',
+                                                        'dist', 'bin', 'artifacts',
+                                                        f'{name}_source')
+                        shutil.copytree(root_candidate, proj_dest, ignore=ignore, dirs_exist_ok=True)
                         UI.log(UI.GREEN, t('act_saved'), f"Source -> {proj_dest.name}")
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts, "runtime_deps": plugin.get("runtime_deps", [])})
                     self.stats["success"] += 1

@@ -369,13 +369,18 @@ class DependencyManager:
             subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._apt_updated = True
 
+    @staticmethod
+    def pkg_for_tool(tool: str) -> str:
+        """Map a build tool to its Debian/Ubuntu package name."""
+        if tool == "mvn": return "maven"
+        if tool in ["gradlew", "gradle"]: return "gradle"
+        if tool in ["java", "javac"]: return "openjdk-21-jdk"
+        return tool
+
     def trigger_install(self, tool: str) -> bool:
         if not self.auto_install: return False
         pkg_mgr = self.get_pkg_manager()
-        pkg = tool
-        if tool == "mvn": pkg = "maven"
-        elif tool in ["gradlew", "gradle"]: pkg = "gradle"
-        elif tool in ["java", "javac"]: pkg = "openjdk-21-jdk"
+        pkg = self.pkg_for_tool(tool)
 
         if pkg_mgr == "apt" and os.geteuid() == 0:
             with UI.spinner(t("installing", tool=pkg)) as spinner:

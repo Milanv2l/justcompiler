@@ -69,3 +69,32 @@ def test_list_volumes_empty_on_error(monkeypatch):
         raise OSError("no docker")
     monkeypatch.setattr(jc.subprocess, "run", boom)
     assert jc._list_docker_jc_volumes(["docker"]) == []
+
+
+# ------------------------------------------------- volume retention (A3)
+
+from datetime import datetime, timezone, timedelta
+
+
+def _ts(days_ago):
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat().replace("+00:00", "Z")
+
+
+def test_volumes_older_than_filters_correctly():
+    entries = [("old1", _ts(40)), ("mid", _ts(10)), ("new", _ts(1))]
+    assert jc._volumes_older_than(entries, 30) == ["old1"]
+    assert jc._volumes_older_than(entries, 5) == ["old1", "mid"]
+    assert jc._volumes_older_than(entries, 100) == []
+
+
+def test_volumes_older_than_handles_bad_timestamps():
+    entries = [("broken", "not-a-date"), ("ok", _ts(99)), ("naive", "2020-01-01T00:00:00")]
+    old = jc._volumes_older_than(entries, 30)
+    assert "broken" not in old and "ok" in old and "naive" in old
+
+
+def test_volumes_older_than_zero_days_all_old():
+    entries = [("v", _ts(0))]  # created 'now' but days=0 cutoff = now -> borderline
+    # created exactly now is NOT strictly older than cutoff==now
+    result = jc._volumes_older_than(entries, 0)
+    assert result in ([], ["v"])

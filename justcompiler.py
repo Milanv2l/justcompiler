@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.7.1"
+VERSION = "1.8.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -182,6 +182,14 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
         return targets[0]["name"]
     markers = {}
     specs = {}
+    # Generic manifests appear in nearly every project of their ecosystem and
+    # must not outweigh highly specific markers (mod descriptors, lockfiles…)
+    _GENERIC_DETECT = {
+        "package.json", "build.gradle", "build.gradle.kts", "settings.gradle",
+        "settings.gradle.kts", "pom.xml", "CMakeLists.txt", "Makefile",
+        "makefile", "GNUmakefile", "meson.build", "Cargo.toml", "go.mod", "BUILD",
+    }
+    hits = {}   # target -> {(detect, is_root)} unique marker locations
     for f in project_root.rglob("*"):
         if not f.is_file():
             continue
@@ -191,18 +199,29 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
             for d in plugin.get("detect", []):
                 if "*" in d:
                     pat = d.replace("*", "")
-                    if f.name.endswith(pat) or f.name == pat:
-                        markers[t["name"]] = markers.get(t["name"], 0) + 1
+                    if not (f.name.endswith(pat) or f.name == pat):
+                        continue
                 elif "/" not in d:
-                    if f.name == d:
-                        markers[t["name"]] = markers.get(t["name"], 0) + 2
+                    if f.name != d:
+                        continue
                 else:
                     rel = str(f.relative_to(project_root)).replace("\\", "/")
-                    if rel == d:
-                        markers[t["name"]] = markers.get(t["name"], 0) + 3
+                    if rel != d:
+                        continue
+                # repeated identical markers across a monorepo count ONCE
+                hits.setdefault(t["name"], set()).add((d, f.parent == project_root))
+    for name, keys in hits.items():
+        score = 0
+        for d, is_root in keys:
+            s = 1 if "*" in d else 2
+            if is_root:
+                s += 3
+            if d in _GENERIC_DETECT:
+                s -= 4
+            score += s
+        markers[name] = score
     if markers:
-        # weight by plugin specificity so e.g. a Minecraft mod marker beats
-        # generic "Java (Gradle)" when both score the same marker hits
+        # plugin specificity breaks ties/weight once, not per marker-hit
         return max(markers, key=lambda n: (markers[n] + specs.get(n, 0), markers[n]))
     return targets[0]["name"]
 
@@ -403,6 +422,23 @@ def _list_docker_jc_volumes(docker_cmd: list) -> list:
     except Exception:
         return []
 
+def _volumes_older_than(entries: list, days: int, now: datetime.datetime | None = None) -> list:
+    """Filter [(name, created_str)] to volumes older than `days`.
+    created_str is docker's RFC3339-ish CreatedAt ('2026-08-01T12:00:00Z' or with offset)."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=days)
+    old = []
+    for name, created in entries:
+        try:
+            ts = datetime.datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+            if ts < cutoff:
+                old.append(name)
+        except Exception:
+            continue
+    return old
+
 def handle_clean():
     """Reclaim disk space: old build folders, per-project volumes, dangling images."""
     keep = 10
@@ -424,7 +460,25 @@ def handle_clean():
     if shutil.which("docker"):
         docker_cmd = ["docker"] if platform.system() == "Windows" else ["sudo", "docker"]
     if docker_cmd:
+        volumes_old_days = None
+        if "--volumes-old" in sys.argv:
+            try:
+                volumes_old_days = max(0, int(sys.argv[sys.argv.index("--volumes-old") + 1]))
+            except (IndexError, ValueError):
+                pass
         volumes = _list_docker_jc_volumes(docker_cmd)
+        if volumes and volumes_old_days is not None:
+            entries = []
+            for v in volumes:
+                insp = subprocess.run(docker_cmd + ["volume", "inspect", "-f", "{{.CreatedAt}}", v],
+                                      capture_output=True, text=True)
+                entries.append((v, insp.stdout.strip()))
+            stale_vols = _volumes_older_than(entries, volumes_old_days)
+            for v in stale_vols:
+                subprocess.run(docker_cmd + ["volume", "rm", "-f", v],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"{UI.GREEN}[OK] Removed {len(stale_vols)} volume(s) older than {volumes_old_days} day(s).{UI.RESET}")
+            volumes = [v for v in volumes if v not in stale_vols]
         if volumes:
             print(f"{UI.YELLOW}[CLEAN] {len(volumes)} JustCompiler volume(s) found:{UI.RESET}")
             for v in volumes:
@@ -1020,6 +1074,9 @@ def _is_main_artifact(name: str, kind: str, size: int) -> bool:
     if any(p in low for p in ["-sources", "-javadoc", "-doc", "-dev", "-devel",
                                "-static", "-dbg", "test_", "example", "sample",
                                "-unshaded", "-slim"]):
+        score -= 50
+    # CMake/Go/cargo test-suite binaries (fmt_args-test, foo.test, x.test.js…)
+    if low.endswith(("-test", ".test", "_test") ) or low.startswith("test-"):
         score -= 50
     if kind in ("jar",) and score < 20:
         score -= 10

@@ -1527,7 +1527,6 @@
         "cmd_system": "cargo build --release --workspace",
         "out_dirs": [
             "target/release",
-            "target/release/deps",
             "dist"
         ],
         "out_exts": [

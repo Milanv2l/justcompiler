@@ -82,10 +82,13 @@ def _prune_old_images(docker_cmd: list, repo: str, keep_tag: str = "", keep: int
 def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, extra_env: dict | None = None) -> list:
     """Docker flags for env + sandbox hardening. Must appear BEFORE the image name."""
     flags = []
+    # CI=1 keeps every toolchain non-interactive (pnpm 10 build-script
+    # approvals otherwise block forever on a stdin-less container)
+    flags += ["-e", "CI=1", "-e", "PYTHONUNBUFFERED=1",
+              "-e", "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1",
+              "-e", "PUPPETEER_SKIP_DOWNLOAD=1"]
     if java_version:
-        flags += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
-    else:
-        flags += ["-e", "PYTHONUNBUFFERED=1"]
+        flags += ["-e", f"JC_JAVA_VERSION={java_version}"]
     for k, v in (extra_env or {}).items():
         flags += ["-e", f"{k}={v}"]
     cfg = cfg or {}
@@ -96,6 +99,57 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
     if cfg.get("cpu_limit"):
         flags += ["--cpus", str(cfg["cpu_limit"])]
     return flags
+
+def _base_dockerfile(base_image: str, profile: str = "full") -> str:
+    """Dockerfile content for the sandbox base image.
+    'full' preinstalls every supported toolchain; 'slim' ships only the
+    bootstrap essentials and lets the engine's AI-RESCUE apt-install whatever
+    the detected project actually needs (much faster first build)."""
+    head = f"""FROM {base_image}
+ARG DEBIAN_FRONTEND=noninteractive
+"""
+    venv = """
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
+"""
+    # rustup provides a current Rust/Cargo (distro cargo is years out of date
+    # and fails on modern editions like edition2024)
+    rustup = """RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+"""
+    if profile == "slim":
+        body = """RUN apt-get update && apt-get install -y \\
+    ca-certificates curl wget unzip zip jq git rsync python3 python3-pip python3-venv \\
+    build-essential g++ pkg-config openjdk-21-jdk \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+        jdk = """RUN ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21
+ENV JAVA_HOME=/opt/jdk21
+ENV PATH="$JAVA_HOME/bin:$PATH"
+"""
+        return head + body + venv + rustup + jdk
+    else:
+        body = """RUN apt-get update && apt-get install -y \\
+    curl wget unzip zip jq git rsync python3 python3-pip python3-venv build-essential g++ cmake \\
+    qt6-base-dev qt6-tools-dev-tools openjdk-8-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk maven gradle golang \\
+    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
+    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
+    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
+RUN npm install -g pnpm yarn
+RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh && chmod +x dotnet-install.sh && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && rm dotnet-install.sh
+"""
+        jdk = """RUN ln -sfn /usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture) /opt/jdk8 \\
+    && ln -sfn /usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture) /opt/jdk17 \\
+    && ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21 \\
+    && ln -sfn /usr/lib/jvm/java-25-openjdk-$(dpkg --print-architecture) /opt/jdk25
+ENV JAVA_HOME=/opt/jdk21
+ENV PATH="$JAVA_HOME/bin:$PATH"
+"""
+    return head + body + venv + rustup + jdk
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None, extra_env: dict | None = None, project_name: str = "") -> bool | None:
     if not shutil.which("docker"):
@@ -123,29 +177,14 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 
     if not check_image.stdout.strip():
 
-        base_dockerfile_content = f"""FROM {base_image}
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \\
-    curl wget unzip zip jq git rsync python3 python3-pip python3-venv build-essential g++ cmake \\
-    qt6-base-dev qt6-tools-dev-tools openjdk-8-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
-    php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
-    libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
-    pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
-    && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
-RUN npm install -g pnpm yarn
-RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh && chmod +x dotnet-install.sh && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && rm dotnet-install.sh
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
-RUN ln -sfn /usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture) /opt/jdk8 \\
-    && ln -sfn /usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture) /opt/jdk17 \\
-    && ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21 \\
-    && ln -sfn /usr/lib/jvm/java-25-openjdk-$(dpkg --print-architecture) /opt/jdk25
-ENV JAVA_HOME=/opt/jdk21
-ENV PATH="$JAVA_HOME/bin:$PATH"
-"""
+        # Optional sandbox hardening via config.json (all optional, safe defaults)
+        try:
+            cfg0 = json.loads((Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8"))
+        except Exception:
+            cfg0 = {}
+        profile = "slim" if cfg0.get("profile") == "slim" else "full"
+
+        base_dockerfile_content = _base_dockerfile(base_image, profile)
         base_hash = hashlib.sha256((base_image + base_dockerfile_content).encode()).hexdigest()[:12]
         base_tag = f"justcompiler-base:{base_hash}"
 
@@ -189,7 +228,7 @@ echo "JAVA_HOME=$JAVA_HOME ($(java -version 2>&1 | head -1))"
 if [ -d /workspace/src ]; then
     rsync -a --delete /workspace/src/ /workspace/persist/
 fi
-exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/artifacts "$@"
+exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/artifacts --auto-install "$@"
 """
         dockerfile_path = host_dir / "Dockerfile"
         entrypoint_path = host_dir / "entrypoint.sh"
@@ -210,7 +249,8 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
     home = Path.home()
     cache_dirs = {k: home / v for k, v in {
         "gradle": ".gradle", "maven": ".m2", "npm": ".npm", "pip": ".cache/pip",
-        "cargo": ".cargo/registry", "go_mod": "go/pkg/mod", "go_build": ".cache/go-build"
+        "cargo": ".cargo/registry", "go_mod": "go/pkg/mod", "go_build": ".cache/go-build",
+        "pnpm": ".local/share/pnpm", "yarn": ".cache/yarn"
     }.items()}
     for p in cache_dirs.values(): 
         p.mkdir(parents=True, exist_ok=True)
@@ -224,6 +264,8 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
             "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
             "-v", f"{cache_dirs['go_mod']}:/root/go/pkg/mod:z",
             "-v", f"{cache_dirs['go_build']}:/root/.cache/go-build:z",
+            "-v", f"{cache_dirs['pnpm']}:/root/.local/share/pnpm:z",
+            "-v", f"{cache_dirs['yarn']}:/root/.cache/yarn:z",
         ]
 
     vol_name = _volume_name(target_path)
