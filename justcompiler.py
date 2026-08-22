@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -754,7 +754,9 @@ def _scan_artifacts(folder: Path) -> list[ArtifactInfo]:
 
     for root, dirs, files in os.walk(str(folder)):
         root_p = Path(root)
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skipped_dirs]
+        # skip hidden dirs, noise dirs, and <proj>_source mirrors (root copies are canonical)
+        dirs[:] = [d for d in dirs
+                   if not d.startswith(".") and d not in skipped_dirs and not d.endswith("_source")]
 
         for fname in files:
             fpath = root_p / fname

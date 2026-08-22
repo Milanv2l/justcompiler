@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test deps
+        run: pip install pytest
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  release-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version files must match on tag pushes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          FILE=$(cat version.txt)
+          CODE=$(grep -oP 'VERSION = "\K[^"]+' justcompiler.py)
+          echo "tag=v$TAG version.txt=$FILE justcompiler.py=$CODE"
+          [ "$TAG" = "$FILE" ] || { echo "::error::version.txt != tag"; exit 1; }
+          [ "$TAG" = "$CODE" ] || { echo "::error::VERSION != tag"; exit 1; }

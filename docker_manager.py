@@ -79,6 +79,22 @@ def _prune_old_images(docker_cmd: list, repo: str, keep_tag: str = "", keep: int
     except Exception:
         pass
 
+def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None) -> list:
+    """Docker flags for env + sandbox hardening. Must appear BEFORE the image name."""
+    flags = []
+    if java_version:
+        flags += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
+    else:
+        flags += ["-e", "PYTHONUNBUFFERED=1"]
+    cfg = cfg or {}
+    if cfg.get("sandbox_network") is False:
+        flags += ["--network", "none"]
+    if cfg.get("memory_limit"):
+        flags += ["--memory", str(cfg["memory_limit"])]
+    if cfg.get("cpu_limit"):
+        flags += ["--cpus", str(cfg["cpu_limit"])]
+    return flags
+
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None) -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
@@ -205,17 +221,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
 
     # All cache dirs are mounted into the container for optimal reuse
     subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"]
-    if java_version:
-        run_cmd += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
-    else:
-        run_cmd += ["-e", "PYTHONUNBUFFERED=1"]
-    if cfg.get("sandbox_network") is False:
-        run_cmd += ["--network", "none"]
-    if cfg.get("memory_limit"):
-        run_cmd += ["--memory", str(cfg["memory_limit"])]
-    if cfg.get("cpu_limit"):
-        run_cmd += ["--cpus", str(cfg["cpu_limit"])]
+    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"] + _sandbox_flags(java_version, cfg)
     run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",

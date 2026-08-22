@@ -132,4 +132,18 @@ engine.py           In-container build engine (plugin dispatch, harvesting)
 docker_manager.py   Image lifecycle, sandbox options, log capture
 core.py             UI primitives, i18n (en/nl)
 plugins.json        Language plugin definitions + runtime_deps
+tests/              pytest regression suite (host logic, docker flags, schema)
 ```
+
+## Development & testing
+
+```bash
+pip install pytest
+python -m pytest tests/ -q
+```
+
+The suite covers Java detection, error→dependency matching, install command
+construction, artifact classification, target scanning, image pruning and the
+`plugins.json` schema — no Docker or network required. CI runs it on every push
+(Linux + Windows) and verifies that git tags match `version.txt` / `VERSION`.
+
