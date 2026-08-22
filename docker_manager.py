@@ -6,6 +6,7 @@ import platform
 import json
 import time
 import hashlib
+import secrets
 import re
 from pathlib import Path
 from core import UI, t
@@ -99,6 +100,31 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
     if cfg.get("cpu_limit"):
         flags += ["--cpus", str(cfg["cpu_limit"])]
     return flags
+
+def _gc_stale_runs(docker_cmd: list, max_age_h: float = 6.0):
+    """Best-effort removal of leftover justcompiler_run_* containers from
+    crashed sessions older than max_age_h hours."""
+    try:
+        res = subprocess.run(docker_cmd + ["ps", "-a", "--format",
+                                           "{{.Names}}|{{.RunningFor}}",
+                                           "--filter", "name=justcompiler_run_"],
+                             capture_output=True, text=True)
+        for line in res.stdout.splitlines():
+            name, _, age = line.partition("|")
+            if not name.startswith("justcompiler_run_"):
+                continue
+            if re.search(r"(\d+) hours?", age):
+                try:
+                    if float(re.search(r"(\d+) hours?", age).group(1)) >= max_age_h:
+                        subprocess.run(docker_cmd + ["rm", "-f", name],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+            elif "days" in age:
+                subprocess.run(docker_cmd + ["rm", "-f", name],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 def _base_dockerfile(base_image: str, profile: str = "full") -> str:
     """Dockerfile content for the sandbox base image.
@@ -279,8 +305,10 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         cfg = {}
 
     # All cache dirs are mounted into the container for optimal reuse
-    subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"] + _sandbox_flags(java_version, cfg, extra_env)
+    # unique name per run so parallel builds never kill each other
+    run_name = f"justcompiler_run_{secrets.token_hex(4)}"
+    subprocess.run(docker_cmd + ["rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run_cmd = docker_cmd + ["run", "--name", run_name] + _sandbox_flags(java_version, cfg, extra_env)
     run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",
@@ -315,7 +343,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
             artifacts_path.mkdir(exist_ok=True)
             # Always salvage whatever the container produced (logs, manifest,
             # partial artifacts) regardless of build outcome.
-            subprocess.run(docker_cmd + ["cp", "justcompiler_active_run:/workspace/artifacts/.", str(artifacts_path.resolve())],
+            subprocess.run(docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/.", str(artifacts_path.resolve())],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             (artifacts_path / "build.log").write_text("".join(log_lines), encoding="utf-8", errors="replace")
         except Exception:
@@ -336,5 +364,6 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         return False
     finally:
         set_status_fn(t('docker_cleanup_status'))
-        subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(docker_cmd + ["rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _gc_stale_runs(docker_cmd)
         subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

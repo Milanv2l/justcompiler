@@ -354,6 +354,23 @@ def test_scan_targets_gradle_and_mod_markers(tmp_path):
     assert jc._auto_select_target(tmp_path, targets) == "Minecraft Mod (Fabric/Forge/Quilt)"
 
 
+def test_auto_select_ecosystem_marker_beats_root_makefile(tmp_path):
+    # Regression (rich): root Makefile must not mask pyproject.toml
+    _write(tmp_path, "Makefile", "test:\n\ttrue")
+    _write(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    _write(tmp_path, "setup.py", "")
+    targets = jc._scan_targets(tmp_path)
+    assert jc._auto_select_target(tmp_path, targets) == "Python (PyInstaller / setuptools)"
+
+
+def test_auto_select_ignores_helper_dirs(tmp_path):
+    # Regression (fmt): support/build.gradle must not beat the root Makefile
+    _write(tmp_path, "Makefile", "all:\n\ttrue")
+    _write(tmp_path, "support/build.gradle", "")
+    targets = jc._scan_targets(tmp_path)
+    assert jc._auto_select_target(tmp_path, targets) == "C/C++ (Makefile)"
+
+
 def test_auto_select_pure_java_still_gradle(tmp_path):
     _write(tmp_path, "build.gradle", "")
     _write(tmp_path, "src/Main.java", "class Main{}")

@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.8.0"
+VERSION = "2.0.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -101,9 +101,14 @@ def _scan_targets(root: Path) -> list:
 
     for dirpath, dirs, _ in os.walk(str(root)):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in
-                   ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache"]]
+                   _WALK_SKIP_DIRS + ["BUILD_ARTIFACTS"]]
         files = set(os.listdir(dirpath))
-        for idx, p in enumerate(plugins):
+        # within a directory, specific ecosystem markers must be tried before
+        # generic manifests (a root Makefile must not mask a pyproject.toml)
+        order = sorted(range(len(plugins)),
+                       key=lambda i: (any(d in GENERIC_DETECT for d in plugins[i]["detect"]), i))
+        for idx in order:
+            p = plugins[idx]
             pname = p["name"]
             if pname in seen_plugins:
                 continue
@@ -182,13 +187,6 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
         return targets[0]["name"]
     markers = {}
     specs = {}
-    # Generic manifests appear in nearly every project of their ecosystem and
-    # must not outweigh highly specific markers (mod descriptors, lockfiles…)
-    _GENERIC_DETECT = {
-        "package.json", "build.gradle", "build.gradle.kts", "settings.gradle",
-        "settings.gradle.kts", "pom.xml", "CMakeLists.txt", "Makefile",
-        "makefile", "GNUmakefile", "meson.build", "Cargo.toml", "go.mod", "BUILD",
-    }
     hits = {}   # target -> {(detect, is_root)} unique marker locations
     for f in project_root.rglob("*"):
         if not f.is_file():
@@ -216,7 +214,7 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
             s = 1 if "*" in d else 2
             if is_root:
                 s += 3
-            if d in _GENERIC_DETECT:
+            if d in GENERIC_DETECT:
                 s -= 4
             score += s
         markers[name] = score
@@ -239,7 +237,123 @@ JAVA_DECL_PATTERNS = [
     r"<release>(\d{1,2})</release>",
 ]
 _JAVA_BUILD_FILES = {"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "pom.xml"}
-_WALK_SKIP_DIRS = ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", ".git", ".gradle", "_git_cache"]
+GENERIC_DETECT = {
+    "package.json", "build.gradle", "build.gradle.kts", "settings.gradle",
+    "settings.gradle.kts", "pom.xml", "CMakeLists.txt", "Makefile",
+    "makefile", "GNUmakefile", "meson.build", "Cargo.toml", "go.mod", "BUILD",
+}
+_WALK_SKIP_DIRS = ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", ".git", ".gradle", "_git_cache",
+                   # tooling/CI helpers rarely contain the real project
+                   # (tests/ is NOT skipped: it often carries real markers)
+                   "support", "ci", "scripts", "tools", "docs", "examples"]
+
+_PROJECT_CFG_ALLOWED = {"target", "java_version", "profile", "network",
+                        "memory_limit", "cpu_limit", "env", "run_tests"}
+
+def load_project_config(root: Path) -> dict:
+    """Load and validate repo-owned .justcompiler.json overrides (B2).
+    Unknown keys are ignored; target is validated against plugins.json."""
+    p = root / ".justcompiler.json"
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        UI.warn(f"Ignoring invalid .justcompiler.json: {e}")
+        return {}
+    if not isinstance(data, dict):
+        UI.warn("Ignoring .justcompiler.json: top level must be an object")
+        return {}
+    cfg = {k: v for k, v in data.items() if k in _PROJECT_CFG_ALLOWED}
+    dropped = sorted(set(data) - set(cfg))
+    if dropped:
+        UI.warn(f"Ignoring unknown .justcompiler.json keys: {', '.join(dropped)}")
+    if "target" in cfg:
+        try:
+            names = {pl["name"] for pl in json.loads(
+                (Path(__file__).resolve().parent / "plugins.json").read_text())}
+            if cfg["target"] not in names:
+                UI.warn(f".justcompiler.json target '{cfg['target']}' is not a known plugin; ignoring")
+                cfg.pop("target")
+        except Exception:
+            pass
+    if "env" in cfg and not isinstance(cfg["env"], dict):
+        UI.warn(".justcompiler.json env must be an object; ignoring")
+        cfg.pop("env")
+    return cfg
+
+def _is_git_url(s: str) -> bool:
+    s = s.strip()
+    return (s.startswith(("http://", "https://", "git@", "ssh://"))
+            or (s.endswith(".git") and "/" in s)
+            or s.startswith("github.com/"))
+
+def _cache_dest_for(url: str) -> Path:
+    """Stable cache path for a repo URL (independent of branch)."""
+    repo_name = url.rstrip("/").split("/")[-1].replace(".git", "").lower() or "repo"
+    h = hashlib.sha256(url.strip().lower().rstrip("/").encode()).hexdigest()[:12]
+    return Path.home() / ".justcompiler" / "repos" / f"{repo_name}-{h}"
+
+def _clone_to_cache(url: str, branch: str | None = None) -> tuple:
+    """Shallow-clone `url` (branch optional) into the shared cache, reusing and
+    fast-forwarding an existing clone. Returns (path, branch_used, commit)."""
+    dest = _cache_dest_for(url)
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    if dest.exists() and (dest / ".git").exists():
+        subprocess.run(["git", "fetch", "--all", "--prune", "-q"], cwd=dest,
+                       capture_output=True, env=env)
+        b = branch
+        if not b:
+            res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                                 cwd=dest, capture_output=True, text=True, env=env)
+            b = res.stdout.strip() or None
+        if b:
+            subprocess.run(["git", "checkout", "-q", b], cwd=dest, capture_output=True, env=env)
+        subprocess.run(["git", "pull", "--ff-only", "-q"], cwd=dest, capture_output=True, env=env)
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        cmd = ["git", "clone", "--depth", "1"]
+        if branch:
+            cmd += ["-b", branch]
+        cmd += [url, str(dest)]
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or "clone failed").strip()[-300:])
+    sha_res = subprocess.run(["git", "rev-parse", "--short=8", "HEAD"], cwd=dest,
+                             capture_output=True, text=True, env=env)
+    sha = sha_res.stdout.strip() if sha_res.returncode == 0 else "unknown"
+    return dest, (branch or "default"), sha
+
+def _summarize(status: str, error_class: str, target: str, java_ver,
+               duration_s: float, artifacts_dir: Path, manifest: dict,
+               commit: str = "") -> dict:
+    """Machine-readable end-of-run summary (A3)."""
+    projects = (manifest or {}).get("projects", [])
+    return {
+        "status": status,
+        "error_class": error_class,
+        "target": target,
+        "toolchain": {"java": java_ver},
+        "commit": commit,
+        "duration_s": duration_s,
+        "artifacts_dir": str(artifacts_dir),
+        "artifacts": [i.get("name") for p in projects for i in p.get("items", [])],
+        "logs": [str(artifacts_dir / "build.log"),
+                 str(artifacts_dir / "build_log.txt")],
+        "possible_runtime_deps": sorted({d.get("pkg") for p in projects
+                                         for d in p.get("runtime_deps", []) if d.get("pkg")}),
+    }
+
+def _error_class_from_log(build_folder: Path) -> str:
+    try:
+        log = (build_folder / "build_log.txt").read_text(errors="replace").splitlines()[-60:]
+    except Exception:
+        return ""
+    import engine as _eng
+    probe = _eng.Engine.__new__(_eng.Engine)
+    probe.last_missing_tool = ""
+    return probe.classify_errors(log)
 
 def _available_mem_gb() -> float | None:
     """Best-effort host available memory in GB (Linux /proc/meminfo)."""
@@ -1163,14 +1277,33 @@ if __name__ == "__main__":
     show_tui_header()
     check_for_updates()
 
-    # Headless mode: --build PATH [--target NAME]
+    # Headless mode: --build PATH|URL [--target NAME] [--branch B]
     build_path = None
     target_override = None
+    branch_arg = None
+    raw_build = None
     for i, arg in enumerate(sys.argv):
         if arg == "--build" and i + 1 < len(sys.argv):
-            build_path = Path(sys.argv[i + 1])
+            raw_build = sys.argv[i + 1]      # keep raw: Path() mangles 'https://'
         elif arg == "--target" and i + 1 < len(sys.argv):
             target_override = sys.argv[i + 1]
+        elif arg == "--branch" and i + 1 < len(sys.argv):
+            branch_arg = sys.argv[i + 1]
+
+    headless_commit = ""
+    if raw_build and _is_git_url(raw_build):
+        set_current_status(f"Cloning {raw_build[:60]}...")
+        show_tui_header()
+        try:
+            build_path, _used_branch, headless_commit = _clone_to_cache(raw_build, branch_arg)
+            UI.success(f"Cloned ({_used_branch} @ {headless_commit})")
+        except Exception as e:
+            UI.error(f"Clone failed: {e}")
+            print(json.dumps({"status": "invalid_input", "error_class": "clone_failed",
+                              "target": raw_build}, indent=2))
+            sys.exit(2)
+    elif raw_build:
+        build_path = Path(raw_build)
 
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
@@ -1224,27 +1357,45 @@ if __name__ == "__main__":
         else:
             UI.log(UI.YELLOW, t('build_auto'), "")
 
-        tests = load_config().get("run_tests", False)
+        # Repo-owned overrides (.justcompiler.json) beat auto-detection,
+        # CLI flags beat project config.
+        proj_cfg = load_project_config(target)
+        if proj_cfg.get("target") and not target_override:
+            target_filter = proj_cfg["target"]
+            UI.log(UI.GREEN, t('build_selected'), f"{target_filter} (.justcompiler.json)")
+        tests = load_config().get("run_tests", False) or bool(proj_cfg.get("run_tests"))
         if tests:
             UI.info(t('test_prompt') + " " + t('settings_on'))
 
-        java_ver = _detect_java_version(target)
+        java_ver = proj_cfg.get("java_version") or _detect_java_version(target)
         if java_ver:
-            UI.log(UI.GREEN, "Java", f"detected target version {java_ver}")
+            UI.log(UI.GREEN, "Java", f"using version {java_ver}")
 
         # Clamp Gradle heap to what the host can actually provide
-        extra_env = {}
+        extra_env = dict(proj_cfg.get("env", {}))
         avail_gb = _available_mem_gb()
         if avail_gb is not None:
             heap = max(2, min(12, int(avail_gb * 0.7)))
-            extra_env["JC_GRADLE_HEAP"] = str(heap)
+            extra_env.setdefault("JC_GRADLE_HEAP", str(heap))
             UI.log(UI.DIM, "", f"Gradle heap clamped to {heap}g (host available: {avail_gb:.1f}g)")
 
         base_image = load_config().get("base_image", "ubuntu:24.04")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        t0_run = time.time()
         project_name = target.resolve().name
+        if headless_commit:
+            # cloned repos live in cache dirs like 'rich-<hash>': strip the hash
+            project_name = project_name.rsplit("-", 1)[0]
         build_folder = artifacts_folder / f"{project_name}_{ts}"
         build_folder.mkdir(parents=True, exist_ok=True)
+
+        # sandbox knobs: global config < project overrides
+        sandbox_cfg = load_config()
+        for k in ("profile", "network", "memory_limit", "cpu_limit"):
+            if k in proj_cfg:
+                key = {"network": "sandbox_network"}.get(k, k)
+                sandbox_cfg[key] = proj_cfg[k]
+
         success = docker_manager.bootstrap_sandbox(
             target_path=target,
             artifacts_path=build_folder,
@@ -1259,7 +1410,27 @@ if __name__ == "__main__":
         )
 
         if build_path:
-            sys.exit(0 if success else 1)
+            elapsed = round(time.time() - t0_run, 1)
+            try:
+                manifest = json.loads((build_folder / "build_manifest.json").read_text())
+            except Exception:
+                manifest = {"projects": []}
+            has_artifacts = bool(manifest.get("projects"))
+            if success and has_artifacts:
+                status = "success"
+            elif not success and has_artifacts:
+                status = "partial"
+            else:
+                status = "build_failed"
+            summary = _summarize(status, "" if status == "success" else _error_class_from_log(build_folder),
+                                 target_filter, java_ver, elapsed, build_folder,
+                                 manifest, commit=headless_commit)
+            try:
+                (build_folder / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            print(json.dumps(summary, indent=2))
+            sys.exit({"success": 0, "partial": 3}.get(status, 1))
 
         sys.stdout.flush()
         if success and any(build_folder.iterdir()):

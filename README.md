@@ -35,15 +35,42 @@ The first launch downloads/builds the sandbox base image (~5–10 min, once per 
 [4] Exit
 ```
 
-### Headless CLI
+### Headless / autonomous mode
 
 ```bash
-python3 justcompiler.py --build <path>              # compile, no interaction; exit 0/1/2
-python3 justcompiler.py --build <path> --target "Minecraft Mod (Fabric/Forge/Quilt)"
+python3 justcompiler.py --build <path-or-git-url> [--branch B] [--target NAME]
 ```
 
-`--build` skips the menu and artifact execution — ideal for scripting and CI.
-Exit codes: `0` build succeeded, `1` build failed, `2` path missing.
+Give it a local path **or a repository URL** and it compiles unattended:
+
+- URLs are shallow-cloned into `~/.justcompiler/repos/<repo>-<hash>/`; repeat
+  runs reuse and fast-forward the clone (default branch is picked automatically)
+- No interactive prompts — no branch menu, no artifact picker
+- The run ends with a machine-readable JSON block and writes `summary.json`
+  into the build folder: `{status, error_class, target, toolchain, commit,
+  duration_s, artifacts[], logs[], possible_runtime_deps[]}`
+- Exit codes: `0` success · `1` build failed · `2` invalid input/clone failure · `3` partial success (some artifacts despite task failures)
+- Missing host runtime-dependencies are *reported* in the summary; set
+  `"auto_install_deps": true` in config.json to let headless mode install them too
+
+### Project overrides (`.justcompiler.json`)
+
+Place next to your sources to make autonomous builds deterministic:
+
+```jsonc
+{
+  "target": "Minecraft Mod (Fabric/Forge/Quilt)", // exact plugin name
+  "java_version": 21,
+  "profile": "slim",           // sandbox profile override
+  "network": true,             // false = --network none for this project
+  "memory_limit": "6g",
+  "cpu_limit": 8,
+  "env": { "CARGO_NET_GIT_FETCH_WITH_CLI": "true" },
+  "run_tests": true
+}
+```
+
+Unknown keys are ignored; an unknown `target` is reported and dropped.
 
 After a successful interactive build you get an artifact picker; selecting one
 runs it immediately. If it crashes due to a missing library, the matched
@@ -192,11 +219,14 @@ tests/              pytest regression suite (host logic, engine, docker flags, s
 ```bash
 pip install pytest
 python -m pytest tests/ -q
+scripts/smoke.sh          # headless end-to-end run over 6 real-world repos
 ```
 
-The suite covers Java detection, error→dependency matching, install command
-construction, artifact classification, target scanning, the build engine
-(workspace roots, wrapper lookup, harvest, end-to-end plugin dispatch with a
-fake `echo` toolchain), i18n key parity (en/nl), image pruning and the
-`plugins.json` schema — no Docker or network required.
+The unit suite covers Java detection, error→dependency matching, install command
+construction, artifact classification, target scanning, the build engine,
+i18n parity, image pruning, the autonomous-mode helpers (clone cache, summary
+schema, project overrides) and the `plugins.json` schema — no Docker needed.
+`scripts/smoke.sh` then builds six real projects (rich, fmt, vite, alacritty,
+syncthing, CreateNuclearNeoForge) through the full pipeline; upstream outages
+are reported as skips instead of failures.
 

@@ -26,6 +26,7 @@ class Engine:
         self.last_missing_tool = ""
         self._rescued_tools = set()
         self.extra_out_dirs = []
+        self._net_retries = 0
 
         with open(self.log_file, "w", encoding="utf-8") as f:
             f.write(f"=== UNIVERSAL ENGINE LOG ===\n\n")
@@ -633,6 +634,15 @@ class Engine:
                     self._go_noassets = True
                     attempt -= 1
                     continue
+                if kind == "network_down" and self._net_retries < 2:
+                    # transient flakiness: back off and retry the same attempt
+                    delay = (5, 15)[self._net_retries]
+                    self._net_retries += 1
+                    UI.warn(f"Network hiccup; retrying in {delay}s "
+                            f"(attempt {self._net_retries}/2)...")
+                    time.sleep(delay)
+                    attempt -= 1
+                    continue
                 if kind == "oom":
                     UI.warn("Build ran out of memory. Consider closing apps or lowering gradle jvmargs.")
                 if kind == "missing_tool" and not self.dep_mgr.in_docker:
@@ -752,7 +762,8 @@ class Engine:
 
         for root, dirs, files in os.walk(str(self.src_root)):
             root_p = str(Path(root).resolve())
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache"]]
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", "BUILD_ARTIFACTS", "_git_cache",
+                       "support", "ci", "scripts", "tools", "docs", "examples"]]
 
             if ws and root_p in ws_children:
                 continue

@@ -14,20 +14,6 @@ from engine import Engine
 
 # ----------------------------------------------------------------- fixtures
 
-@pytest.fixture
-def make_engine(tmp_path, monkeypatch):
-    """Engine factory with constructor side effects neutralized."""
-    def _make(src: Path, out: Path, project_name: str = ""):
-        src.mkdir(parents=True, exist_ok=True)
-        out.mkdir(parents=True, exist_ok=True)
-        # avoid mutating the user's global git config during Engine.__init__
-        monkeypatch.setattr(eng_mod.subprocess, "run",
-                            lambda *a, **k: type("R", (), {"returncode": 0})())
-        e = Engine(src, out, test_mode=False, project_name=project_name)
-        return e
-    return _make
-
-
 def test_engine_init_writes_log_and_manifest_paths(tmp_path, make_engine):
     src = tmp_path / "src"; src.mkdir()
     out = tmp_path / "out"; out.mkdir()
