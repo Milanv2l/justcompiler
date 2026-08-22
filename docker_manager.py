@@ -43,7 +43,7 @@ def get_docker_cmd() -> list:
 
 def _compute_engine_hash(host_dir: Path) -> str:
     hasher = hashlib.sha256()
-    for fname in ["core.py", "engine.py", "plugins.json"]:
+    for fname in ["core.py", "engine.py", "plugins.json", "docker_manager.py"]:
         fpath = host_dir / fname
         if fpath.exists():
             hasher.update(fpath.read_bytes())
@@ -102,6 +102,9 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
+RUN ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21
+ENV JAVA_HOME=/opt/jdk21
+ENV PATH="$JAVA_HOME/bin:$PATH"
 """
             base_dockerfile_path = host_dir / "Dockerfile.base"
             try:
