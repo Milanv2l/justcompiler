@@ -17,13 +17,13 @@ from engine import Engine
 @pytest.fixture
 def make_engine(tmp_path, monkeypatch):
     """Engine factory with constructor side effects neutralized."""
-    def _make(src: Path, out: Path):
+    def _make(src: Path, out: Path, project_name: str = ""):
         src.mkdir(parents=True, exist_ok=True)
         out.mkdir(parents=True, exist_ok=True)
         # avoid mutating the user's global git config during Engine.__init__
         monkeypatch.setattr(eng_mod.subprocess, "run",
                             lambda *a, **k: type("R", (), {"returncode": 0})())
-        e = Engine(src, out, test_mode=False)
+        e = Engine(src, out, test_mode=False, project_name=project_name)
         return e
     return _make
 
@@ -289,6 +289,136 @@ def test_harvest_missing_dir_no_items(tmp_path, make_engine):
     e = make_engine(tmp_path / "src", out)
     assert e.harvest("empty", src, PLUGIN_DIR) == []
 
+
+# ------------------------------------------------- harvest quality (syncthing)
+
+def test_looks_executable_magic(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    elf = tmp_path / "bin_elf"; elf.write_bytes(b"\x7fELF" + b"\x00" * 8)
+    sh = tmp_path / "bin_sh"; sh.write_text("#!/bin/sh\n")
+    txt = tmp_path / "AUTHORS"; txt.write_text("contributors\n")
+    assert e._looks_executable(elf) and e._looks_executable(sh)
+    assert not e._looks_executable(txt)
+
+
+def test_harvest_skips_git_and_nonmagic_and_dedupes(tmp_path, make_engine):
+    # Regression (syncthing): out_dir '.' rglobbed .git internals (HEAD, refs),
+    # world-readable files passed X_OK as root, and overlapping out_dirs
+    # duplicated every binary.
+    src = tmp_path / "src" / "proj"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    e = make_engine(tmp_path / "src", out)
+
+    dist = src / "build_output"; dist.mkdir()
+    (dist / "syncthing").write_bytes(b"\x7fELFbinary")
+    gitdir = src / ".git" / "refs"; gitdir.mkdir(parents=True)
+    (gitdir / "HEAD").write_text("ref: refs/heads/main\n")
+    (src / "AUTHORS").write_text("people\n")
+    (src / "a").write_text("junk\n")
+
+    plugin = {"name": "T", "detect": ["go.mod"], "tool": "go",
+              "cmd_system": "echo", "out_dirs": ["build_output", "."],
+              "out_exts": ["", ".exe"], "specificity": 10}
+    items = e.harvest("proj", src, plugin)
+    names = [i["name"] for i in items]
+    assert names == ["proj_syncthing"], names
+    assert (out / "proj_syncthing").read_bytes()[:4] == b"\x7fELF"
+    assert not (out / "proj_AUTHORS").exists()
+    assert not (out / "proj_HEAD").exists()
+    assert not (out / "proj_a").exists()
+
+
+def test_project_name_overrides_root_name_in_manifest(tmp_path, make_engine):
+    # Regression (syncthing): container src dir is '/workspace/persist' so all
+    # artifacts were prefixed 'persist_' instead of the real project name.
+    src = tmp_path / "persist"
+    out = tmp_path / "out"
+    (src / "build.txt").parent.mkdir(parents=True)
+    (src / "build.txt").write_text("")
+    e = make_engine(src, out, project_name="syncthing")
+    e.plugins = [ECHO_PLUGIN]
+    ok = e.run()
+    manifest = json.loads((out / "build_manifest.json").read_text())
+    assert ok and manifest["projects"][0]["name"] == "syncthing"
+    assert (out / "syncthing_out.bin").exists()
+
+# ------------------------------------------------------- go build resolution
+
+def test_go_resolution_creates_output_dir(tmp_path, make_engine):
+    # Regression (syncthing): `go build -o dir/` fails when dir is absent
+    e = make_engine(tmp_path, tmp_path / "out")
+    cmd = e.build_cmd(tmp_path / "proj", {"tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "wrapper": ""}, 1)
+    assert cmd.startswith("mkdir -p build_output && go build -o build_output/ ./...")
+
+
+def test_go_resolution_prefixed_for_go_workspace(tmp_path, make_engine):
+    e = make_engine(tmp_path / "ws", tmp_path / "out")
+    root = tmp_path / "ws" / "svc"
+    root.mkdir(parents=True)
+    (tmp_path / "ws" / "go.work").write_text("go 1.22\n")
+    cmd = e.build_cmd(root, {"tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "wrapper": ""}, 1)
+    assert cmd.startswith(f"cd {tmp_path / 'ws'} && mkdir -p build_output && go build")
+
+# ------------------------------------------------------- go noassets rescue
+
+def test_go_noassets_tag_when_flag_set(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    e._go_noassets = True
+    cmd = e.build_cmd(tmp_path / "proj", {"tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "wrapper": ""}, 1)
+    assert "-tags noassets" in cmd and cmd.index("-o build_output/") < cmd.index("-tags noassets")
+
+
+def test_go_noassets_not_tagged_by_default(tmp_path, make_engine):
+    e = make_engine(tmp_path, tmp_path / "out")
+    cmd = e.build_cmd(tmp_path / "proj", {"tool": "go", "cmd_system": "DYNAMIC_GO_RESOLUTION", "wrapper": ""}, 1)
+    assert "-tags" not in cmd
+
+
+def test_go_undefined_auto_triggers_noassets_retry(tmp_path, make_engine):
+    # Regression (syncthing): 'undefined: auto.Assets' must retry once with -tags noassets
+    src = tmp_path / "src" / "st"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "go.mod").write_text("module test\n")
+    calls = []
+    plugin = {"name": "Go (Modules)", "detect": ["go.mod"], "tool": "go",
+              "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output"],
+              "out_exts": [".bin"], "specificity": 10, "wrapper": ""}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True  # bypass host tool checks ('go' absent here)
+
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        if len(calls) == 1:
+            return False, ["lib/api/api_statics.go:38:25: undefined: auto.Assets"]
+        return True, []
+
+    e.run_cmd = fake_run_cmd
+
+    # harvest nothing -> falls to entry-script fallback path; force success via stats check instead
+    ok = e.run()
+    assert len(calls) == 2, f"expected exactly 2 attempts, got {len(calls)}"
+    assert "-tags noassets" in calls[1]
+    assert e.stats["success"] == 1 or e.stats["failed"] == 1  # build ok; fallback may ship scripts
+
+
+def test_go_undefined_auto_retries_only_once(tmp_path, make_engine):
+    src = tmp_path / "src" / "st2"; src.mkdir(parents=True)
+    out = tmp_path / "out"; out.mkdir()
+    (src / "go.mod").write_text("module t\n")
+    calls = []
+    plugin = {"name": "Go (Modules)", "detect": ["go.mod"], "tool": "go",
+              "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output"],
+              "out_exts": [".bin"], "specificity": 10, "wrapper": ""}
+    e = make_engine(tmp_path / "src", out)
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True
+    e.run_cmd = lambda cmd, cwd: (calls.append(cmd), (False, ["x.go:1: undefined: auto.Foo"]))[1]
+    e.run()
+    # attempt 1 plain + one noassets rescue + strategies 2 and 3 (still tagged)
+    noassets_calls = [c for c in calls if "-tags noassets" in c]
+    assert len(calls) == 4
+    assert len(noassets_calls) == 3
 
 # ------------------------------------------------------- error classification
 

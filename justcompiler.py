@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -1197,7 +1197,8 @@ if __name__ == "__main__":
             base_image=base_image,
             target_filter=target_filter,
             java_version=java_ver,
-            extra_env=extra_env
+            extra_env=extra_env,
+            project_name=project_name
         )
 
         if build_path:

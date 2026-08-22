@@ -12,15 +12,17 @@ import core
 from core import UI, t, DependencyManager
 
 class Engine:
-    def __init__(self, src_root: Path, out_root: Path, test_mode: bool, auto_install: bool = False, plugin_url: str = None):
+    def __init__(self, src_root: Path, out_root: Path, test_mode: bool, auto_install: bool = False, plugin_url: str = None, project_name: str = ""):
         self.src_root = src_root.resolve()
         self.out_root = out_root.resolve()
         self.test_mode = test_mode
+        self.project_name = project_name
         self.log_file = out_root / "build_log.txt"
         self.manifest_file = out_root / "build_manifest.json"
         self.stats = {"success": 0, "failed": 0, "skipped": 0}
         self.manifest_data = {"build_time_utc": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), "projects": []}
         self.dep_mgr = DependencyManager(auto_install=auto_install)
+        self._go_noassets = False
 
         with open(self.log_file, "w", encoding="utf-8") as f:
             f.write(f"=== UNIVERSAL ENGINE LOG ===\n\n")
@@ -103,8 +105,25 @@ class Engine:
             return "python -m unittest discover" if sys.platform == "win32" else "python3 -m unittest discover"
         return None
 
+    EXEC_MAGIC = (b"\x7fELF", b"MZ", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
+                  b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe")
+
+    @classmethod
+    def _looks_executable(cls, f: Path) -> bool:
+        """Extensionless files must carry real executable magic. X_OK is
+        meaningless when running as root (every readable file passes)."""
+        try:
+            with open(f, "rb") as fh:
+                head = fh.read(4)
+        except Exception:
+            return False
+        if head.startswith(b"#!"):
+            return True
+        return head in cls.EXEC_MAGIC
+
     def harvest(self, name: str, root: Path, plugin: dict) -> list:
         items = []
+        seen = set()
         for out_dir in plugin["out_dirs"]:
             for base in [root] + list(root.parents)[:2]:
 
@@ -127,13 +146,28 @@ class Engine:
                     try:
                         for f in target.rglob('*'):
                             try:
-                                if f.is_file() and (f.suffix in plugin["out_exts"] or (not f.suffix and os.access(f, os.X_OK))):
-                                    if "node_modules" in f.parts: continue
-                                    if f.name.startswith('.'): continue
-                                    dest_f = self.out_root / f"{name}_{f.name}"
-                                    shutil.copy2(f, dest_f)
-                                    items.append({"name": dest_f.name})
-                                    UI.log(UI.GREEN, t('act_saved'), f"File -> {dest_f.name}")
+                                if not f.is_file():
+                                    continue
+                                if ".git" in f.parts or "node_modules" in f.parts:
+                                    continue
+                                if f.name.startswith('.'):
+                                    continue
+                                if f.suffix:
+                                    ok = f.suffix in plugin["out_exts"]
+                                else:
+                                    # '' in out_exts must not blanket-accept
+                                    # every extensionless file (root sees X_OK
+                                    # on anything readable): require magic.
+                                    ok = self._looks_executable(f)
+                                if not ok:
+                                    continue
+                                dest_f = self.out_root / f"{name}_{f.name}"
+                                if str(dest_f) in seen:
+                                    continue
+                                seen.add(str(dest_f))
+                                shutil.copy2(f, dest_f)
+                                items.append({"name": dest_f.name})
+                                UI.log(UI.GREEN, t('act_saved'), f"File -> {dest_f.name}")
                             except PermissionError:
                                 continue
                             except Exception:
@@ -239,7 +273,10 @@ class Engine:
         elif cmd == "DYNAMIC_GO_RESOLUTION":
             ws = self._find_workspace_root(root)
             prefix = f"cd {ws['root']} && " if ws and ws["type"] == "go" else ""
-            return f"{prefix}go build -o build_output\\ ./..." if sys.platform == "win32" else f"{prefix}go build -o build_output/ ./..."
+            # -o dir/ fails when the dir doesn't exist; create it up front.
+            # 'noassets' tag swaps in stub generated assets (see auto/noassets.go pattern).
+            tags = " -tags noassets" if self._go_noassets else ""
+            return f"{prefix}mkdir -p build_output && go build -o build_output/{tags} ./..."
         elif cmd == "DYNAMIC_PYTHON_RESOLUTION":
             if (root / "pyproject.toml").exists():
                 return "pip3 install build && python3 -m build --outdir dist"
@@ -435,6 +472,8 @@ class Engine:
                     break
 
         name = root.name if root.name != "src" else "Root-Workspace"
+        if root == self.src_root and self.project_name:
+            name = self.project_name
         req = self.dep_mgr.inspect_version(root, plugin["tool"])
         UI.log(UI.BLUE, t('act_detected'), f"{name} [{plugin['name']}] ({t('req_msg', req=req)})")
 
@@ -481,6 +520,14 @@ class Engine:
                             "This is an upstream outage, not a local problem - skipping retries.")
                     build_errs = errs
                     break
+                # Go projects with ungenerated embedded assets: retry once with stub tag
+                if (plugin.get("tool") == "go" and not self._go_noassets
+                        and re.search(r"undefined: auto\.\w+", "\n".join(errs))):
+                    UI.warn("Generated Go assets missing (undefined: auto.*). "
+                            "Retrying once with build tag 'noassets'...")
+                    self._go_noassets = True
+                    attempt -= 1
+                    continue
                 if kind == "oom":
                     UI.warn("Build ran out of memory. Consider closing apps or lowering gradle jvmargs.")
                 if self.parse_and_rescue(errs):
@@ -611,8 +658,10 @@ if __name__ == "__main__":
     p.add_argument("--auto-install", action="store_true")
     p.add_argument("--lang", default="en")
     p.add_argument("--filter", default="")
+    p.add_argument("--name", default="")
     args = p.parse_args()
 
     core.set_lang(args.lang)
-    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install).run(filter_name=args.filter)
+    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install,
+                project_name=args.name).run(filter_name=args.filter)
     sys.exit(0 if ok else 1)

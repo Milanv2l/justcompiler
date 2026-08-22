@@ -97,7 +97,7 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
         flags += ["--cpus", str(cfg["cpu_limit"])]
     return flags
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None, extra_env: dict | None = None) -> bool | None:
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None, extra_env: dict | None = None, project_name: str = "") -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -209,10 +209,22 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
 
     home = Path.home()
     cache_dirs = {k: home / v for k, v in {
-        "gradle": ".gradle", "maven": ".m2", "npm": ".npm", "pip": ".cache/pip", "cargo": ".cargo/registry"
+        "gradle": ".gradle", "maven": ".m2", "npm": ".npm", "pip": ".cache/pip",
+        "cargo": ".cargo/registry", "go_mod": "go/pkg/mod", "go_build": ".cache/go-build"
     }.items()}
     for p in cache_dirs.values(): 
         p.mkdir(parents=True, exist_ok=True)
+
+    def _cache_mounts() -> list:
+        return [
+            "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
+            "-v", f"{cache_dirs['maven']}:/root/.m2:z",
+            "-v", f"{cache_dirs['npm']}:/root/.npm:z",
+            "-v", f"{cache_dirs['pip']}:/root/.cache/pip:z",
+            "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
+            "-v", f"{cache_dirs['go_mod']}:/root/go/pkg/mod:z",
+            "-v", f"{cache_dirs['go_build']}:/root/.cache/go-build:z",
+        ]
 
     vol_name = _volume_name(target_path)
     subprocess.run(docker_cmd + ["volume", "create", vol_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -230,13 +242,11 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
     run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",
-        "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
-        "-v", f"{cache_dirs['maven']}:/root/.m2:z",
-        "-v", f"{cache_dirs['npm']}:/root/.npm:z",
-        "-v", f"{cache_dirs['pip']}:/root/.cache/pip:z",
-        "-v", f"{cache_dirs['cargo']}:/root/.cargo/registry:z",
+        *_cache_mounts(),
         image_tag, "--lang", lang
     ]
+    if project_name:
+        run_cmd += ["--name", project_name]
     if target_filter:
         run_cmd += ["--filter", target_filter]
     if run_tests: 
