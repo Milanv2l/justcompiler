@@ -7,13 +7,14 @@ import urllib.request
 import time
 import json
 import hashlib
+import re
 import datetime
 from pathlib import Path
 import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -200,6 +201,65 @@ def _auto_select_target(project_root: Path, targets: list) -> str:
     if markers:
         return max(markers, key=markers.get)
     return targets[0]["name"]
+
+JAVA_DECL_PATTERNS = [
+    r"sourceCompatibility\s*=\s*['\"]?(\d{1,2})(?:\.\d+)?['\"]?",
+    r"sourceCompatibility\s*=\s*JavaVersion\.VERSION_(\d{1,2})",
+    r"targetCompatibility\s*=\s*['\"]?(\d{1,2})(?:\.\d+)?['\"]?",
+    r"targetCompatibility\s*=\s*JavaVersion\.VERSION_(\d{1,2})",
+    r"JavaLanguageVersion\.of\(\s*(\d{1,2})\s*\)",
+    r"jvmToolchain\(\s*(\d{1,2})\s*\)",
+    r"<maven\.compiler\.release>(\d{1,2})</maven\.compiler\.release>",
+    r"<maven\.compiler\.source>(\d{1,2})</maven\.compiler\.source>",
+    r"<maven\.compiler\.target>(\d{1,2})</maven\.compiler\.target>",
+    r"<java\.version>(\d{1,2})</java\.version>",
+    r"<release>(\d{1,2})</release>",
+]
+_JAVA_BUILD_FILES = {"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "pom.xml"}
+_WALK_SKIP_DIRS = ["node_modules", "target", "build", "dist", "bin", "venv", "__pycache__", ".git", ".gradle", "_git_cache"]
+
+def _detect_java_version(root: Path) -> int | None:
+    """Scan build files for the Java version the project targets.
+    Priority: declared version > gradle wrapper cap > None."""
+    found = []
+    for dirpath, dirs, files in os.walk(str(root)):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in _WALK_SKIP_DIRS]
+        for fname in files:
+            if fname == ".java-version":
+                try:
+                    v = (Path(dirpath) / fname).read_text().strip().split()[0]
+                    if v.isdigit() and 8 <= int(v) <= 30:
+                        found.append(int(v))
+                except Exception:
+                    pass
+                continue
+            if fname not in _JAVA_BUILD_FILES:
+                continue
+            try:
+                text = (Path(dirpath) / fname).read_text(errors="ignore")
+            except Exception:
+                continue
+            for pat in JAVA_DECL_PATTERNS:
+                m = re.search(pat, text)
+                if m and 8 <= int(m.group(1)) <= 30:
+                    found.append(int(m.group(1)))
+    if found:
+        return max(found)
+    # No explicit version: cap by gradle wrapper's supported JVM
+    wrapper = root / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    if wrapper.exists():
+        try:
+            text = wrapper.read_text(errors="ignore")
+            m = re.search(r"gradle-(\d+)(?:\.(\d+))?", text)
+            if m:
+                major = int(m.group(1))
+                minor = int(m.group(2) or 0)
+                if major >= 9 or (major == 8 and minor >= 5):
+                    return 21
+                return 17
+        except Exception:
+            pass
+    return None
 
 def _force_update(selected_lang):
     try:
@@ -931,6 +991,10 @@ if __name__ == "__main__":
         if tests:
             UI.info(t('test_prompt') + " " + t('settings_on'))
 
+        java_ver = _detect_java_version(target)
+        if java_ver:
+            UI.log(UI.GREEN, "Java", f"detected target version {java_ver}")
+
         base_image = load_config().get("base_image", "ubuntu:24.04")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         project_name = target.resolve().name
@@ -943,7 +1007,8 @@ if __name__ == "__main__":
             lang=selected_lang,
             set_status_fn=set_current_status,
             base_image=base_image,
-            target_filter=target_filter
+            target_filter=target_filter,
+            java_version=java_ver
         )
 
         sys.stdout.flush()

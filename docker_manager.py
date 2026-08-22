@@ -53,7 +53,7 @@ def _volume_name(target_path: Path) -> str:
     h = hashlib.sha256(str(target_path.resolve()).encode()).hexdigest()[:12]
     return f"justcompiler-{h}"
 
-def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "") -> bool | None:
+def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None) -> bool | None:
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
         return
@@ -83,7 +83,7 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
     curl wget unzip zip jq git python3 python3-pip python3-venv build-essential g++ cmake \\
-    qt6-base-dev qt6-tools-dev-tools openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
+    qt6-base-dev qt6-tools-dev-tools openjdk-8-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk maven gradle golang cargo \\
     php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
     libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
     pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
@@ -95,7 +95,10 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel pyinstaller cx_Freeze
-RUN ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21
+RUN ln -sfn /usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture) /opt/jdk8 \\
+    && ln -sfn /usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture) /opt/jdk17 \\
+    && ln -sfn /usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture) /opt/jdk21 \\
+    && ln -sfn /usr/lib/jvm/java-25-openjdk-$(dpkg --print-architecture) /opt/jdk25
 ENV JAVA_HOME=/opt/jdk21
 ENV PATH="$JAVA_HOME/bin:$PATH"
 """
@@ -130,6 +133,11 @@ ENTRYPOINT ["/workspace/entrypoint.sh"]
         entrypoint_content = """#!/bin/bash
 set -e
 mkdir -p /workspace/artifacts /workspace/persist
+if [ -n "$JC_JAVA_VERSION" ] && [ -x "/opt/jdk$JC_JAVA_VERSION/bin/java" ]; then
+    export JAVA_HOME="/opt/jdk$JC_JAVA_VERSION"
+    export PATH="$JAVA_HOME/bin:$PATH"
+fi
+echo "JAVA_HOME=$JAVA_HOME ($(java -version 2>&1 | head -1))"
 if [ -d /workspace/src ]; then
     cp -ur /workspace/src/. /workspace/persist/
 fi
@@ -163,8 +171,12 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
 
     # Alle cache-mappen worden nu daadwerkelijk gekoppeld aan de container voor optimaal hergebruik
     subprocess.run(docker_cmd + ["rm", "-f", "justcompiler_active_run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    run_cmd = docker_cmd + [
-        "run", "--name", "justcompiler_active_run", "-e", "PYTHONUNBUFFERED=1",
+    run_cmd = docker_cmd + ["run", "--name", "justcompiler_active_run"]
+    if java_version:
+        run_cmd += ["-e", f"JC_JAVA_VERSION={java_version}", "-e", "PYTHONUNBUFFERED=1"]
+    else:
+        run_cmd += ["-e", "PYTHONUNBUFFERED=1"]
+    run_cmd += [
         "-v", f"{target_path.resolve()}:/workspace/src:ro,z",
         "-v", f"{vol_name}:/workspace/persist:z",
         "-v", f"{cache_dirs['gradle']}:/root/.gradle:z",
