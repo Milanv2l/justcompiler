@@ -519,6 +519,26 @@ class Engine:
                     pass
         return found
 
+    def _has_parent_marker(self, root: str, detect_list: list) -> bool:
+        cur = Path(root).resolve()
+        src = Path(self.src_root).resolve()
+        while cur != src and cur != cur.parent:
+            cur = cur.parent
+            if cur < src:
+                break
+            try:
+                parent_files = set(f.name for f in cur.iterdir() if f.is_file())
+            except Exception:
+                continue
+            for d in detect_list:
+                if "*" in d:
+                    pat = d.replace("*", "")
+                    if any(f.endswith(pat) or f == pat for f in parent_files):
+                        return True
+                elif d in parent_files:
+                    return True
+        return False
+
     def run(self, filter_name: str = "") -> bool:
         t0 = time.time()
         UI.log(UI.BLUE, t('act_scan'), f"{self.src_root.resolve()}")
@@ -529,26 +549,6 @@ class Engine:
             for d in ws["root"].iterdir():
                 if d.is_dir() and (d / "package.json").exists():
                     ws_children.add(str(d.resolve()))
-
-        def _has_parent_marker(root: str, detect_list: list) -> bool:
-            cur = Path(root).resolve()
-            src = Path(self.src_root).resolve()
-            while cur != src and cur != cur.parent:
-                cur = cur.parent
-                if cur < src:
-                    break
-                try:
-                    parent_files = set(f.name for f in cur.iterdir() if f.is_file())
-                except Exception:
-                    continue
-                for d in detect_list:
-                    if "*" in d:
-                        pat = d.replace("*", "")
-                        if any(f.endswith(pat) or f == pat for f in parent_files):
-                            return True
-                    elif d in parent_files:
-                        return True
-            return False
 
         for root, dirs, files in os.walk(str(self.src_root)):
             root_p = str(Path(root).resolve())
@@ -569,7 +569,7 @@ class Engine:
                         best_spec = spec
 
             if best:
-                if not _has_parent_marker(root, best["detect"]):
+                if not self._has_parent_marker(root, best["detect"]):
                     self.process(Path(root), files, best)
                 else:
                     self.stats["skipped"] += 1

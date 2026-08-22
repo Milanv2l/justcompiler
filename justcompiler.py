@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "1.5.1"
+VERSION = "1.6.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
@@ -357,6 +357,78 @@ def _remove_alias():
                 pf.write_text("".join(filtered), encoding="utf-8")
         except Exception:
             pass
+
+def _clean_executables(artifacts_dir: Path, keep: int = 10) -> list:
+    """Delete oldest entries in artifacts_dir, keeping the `keep` newest by mtime.
+    Returns the list of removed paths."""
+    if not artifacts_dir.is_dir():
+        return []
+    try:
+        entries = sorted(artifacts_dir.iterdir(),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return []
+    stale = entries[keep:] if len(entries) > keep else []
+    removed = []
+    for p in stale:
+        try:
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                p.unlink()
+            removed.append(p)
+        except Exception:
+            pass
+    return removed
+
+def _list_docker_jc_volumes(docker_cmd: list) -> list:
+    try:
+        res = subprocess.run(docker_cmd + ["volume", "ls", "--format", "{{.Name}}"],
+                             capture_output=True, text=True)
+        return [l.strip() for l in res.stdout.splitlines() if l.strip().startswith("justcompiler-")]
+    except Exception:
+        return []
+
+def handle_clean():
+    """Reclaim disk space: old build folders, per-project volumes, dangling images."""
+    keep = 10
+    if "--keep" in sys.argv:
+        try:
+            keep = max(0, int(sys.argv[sys.argv.index("--keep") + 1]))
+        except (IndexError, ValueError):
+            pass
+    artifacts_dir = Path("./EXECUTABLE")
+    stale = _clean_executables(artifacts_dir, keep=keep)
+    if stale:
+        print(f"{UI.YELLOW}[CLEAN] {len(stale)} old build folder(s) in {artifacts_dir}:{UI.RESET}")
+        for p in stale:
+            print(f"  - {p.name}")
+    else:
+        print(f"{UI.GREEN}[OK] No build folders to remove (keeping newest {keep}).{UI.RESET}")
+
+    docker_cmd = None
+    if shutil.which("docker"):
+        docker_cmd = ["docker"] if platform.system() == "Windows" else ["sudo", "docker"]
+    if docker_cmd:
+        volumes = _list_docker_jc_volumes(docker_cmd)
+        if volumes:
+            print(f"{UI.YELLOW}[CLEAN] {len(volumes)} JustCompiler volume(s) found:{UI.RESET}")
+            for v in volumes:
+                print(f"  - {v}")
+            confirm = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Remove these volumes (cached build state)? (y/N): {UI.RESET}").strip().lower()
+            if confirm in ("y", "yes"):
+                for v in volumes:
+                    subprocess.run(docker_cmd + ["volume", "rm", "-f", v],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"{UI.GREEN}[OK] Volumes removed.{UI.RESET}")
+        else:
+            print(f"{UI.GREEN}[OK] No JustCompiler volumes found.{UI.RESET}")
+        subprocess.run(docker_cmd + ["image", "prune", "-f"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{UI.GREEN}[OK] Dangling Docker images pruned.{UI.RESET}")
+    else:
+        print(f"{UI.YELLOW}[INFO] Docker not available; skipped volume/image cleanup.{UI.RESET}")
+    sys.exit(0)
 
 def handle_uninstall():
     UI.warn("Uninstalling JustCompiler...")
@@ -988,6 +1060,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1].lower() == "uninstall":
             handle_uninstall()
+        if sys.argv[1].lower() == "clean":
+            handle_clean()
         if sys.argv[1].lower() in ("--version", "-v"):
             print(f"JustCompiler v{VERSION}")
             sys.exit(0)

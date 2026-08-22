@@ -106,8 +106,17 @@ Updates are pulled from GitHub tags and verified with SHA256 checksums. Force re
 ```bash
 python3 justcompiler.py --version        # show version
 python3 justcompiler.py --lang nl        # override language
+python3 justcompiler.py clean            # reclaim disk space (see below)
 python3 justcompiler.py uninstall        # remove alias, Docker images, config
 ```
+
+### `clean`
+
+Removes old build output folders from `./EXECUTABLE` (newest 10 kept by default,
+override with `clean --keep N`), lists and optionally removes per-project Docker
+volumes (`justcompiler-*`, cached build state), and prunes dangling images.
+Nothing is deleted without a prompt for the volumes step.
+
 
 ## Troubleshooting
 
@@ -132,7 +141,7 @@ engine.py           In-container build engine (plugin dispatch, harvesting)
 docker_manager.py   Image lifecycle, sandbox options, log capture
 core.py             UI primitives, i18n (en/nl)
 plugins.json        Language plugin definitions + runtime_deps
-tests/              pytest regression suite (host logic, docker flags, schema)
+tests/              pytest regression suite (host logic, engine, docker flags, schema)
 ```
 
 ## Development & testing
@@ -143,7 +152,8 @@ python -m pytest tests/ -q
 ```
 
 The suite covers Java detection, error→dependency matching, install command
-construction, artifact classification, target scanning, image pruning and the
-`plugins.json` schema — no Docker or network required. CI runs it on every push
-(Linux + Windows) and verifies that git tags match `version.txt` / `VERSION`.
+construction, artifact classification, target scanning, the build engine
+(workspace roots, wrapper lookup, harvest, end-to-end plugin dispatch with a
+fake `echo` toolchain), i18n key parity (en/nl), image pruning and the
+`plugins.json` schema — no Docker or network required.
 
