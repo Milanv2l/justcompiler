@@ -3,6 +3,7 @@
 No Docker required: builds are faked with an `echo`-based plugin.
 """
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -531,6 +532,80 @@ def test_go_undefined_auto_retries_only_once(tmp_path, make_engine):
     noassets_calls = [c for c in calls if "-tags noassets" in c]
     assert len(calls) == 4
     assert len(noassets_calls) == 3
+
+def test_classify_jvm_too_old(tmp_path, make_engine):
+    # Regression (hytale-castle-siege): scaffoldit plugin needs JVM 25
+    e = make_engine(tmp_path, tmp_path / "out")
+    errs = ["> Dependency requires at least JVM runtime version 25. "
+            "This build uses a Java 21 JVM."]
+    kind = e.classify_errors(errs)
+    assert kind == "jvm_too_old" and e.last_needed_jvm == 25
+
+
+def test_jvm_rescue_switches_java_home_and_retries(tmp_path, make_engine):
+    src = tmp_path / "src" / "hy"; out = tmp_path / "out"
+    e0 = make_engine(src, out)   # creates dirs
+    (src / "build.gradle.kts").write_text("")
+    calls = []
+    plugin = {"name": "Java (Gradle)", "detect": ["build.gradle.kts"],
+              "tool": "gradle", "cmd_system": "gradle assemble",
+              "out_dirs": ["build/libs"], "out_exts": [".jar"],
+              "specificity": 10, "wrapper": ""}
+    e = e0
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True
+    e.check_ready = lambda p, r: True
+
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        if len(calls) == 1:
+            return False, ["Dependency requires at least JVM runtime version 25. "
+                           "This build uses a Java 21 JVM."]
+        d = Path(cwd) / "build" / "libs"; d.mkdir(parents=True, exist_ok=True)
+        (d / "x.jar").write_bytes(b"PK")
+        return True, []
+
+    # fake a JDK25 install so the existence-check passes on any host
+    jdkroot = tmp_path / "jdks"; (jdkroot / "jdk25" / "bin").mkdir(parents=True)
+    (jdkroot / "jdk25" / "bin" / "java").write_text("#!/bin/sh\n")
+    e._jdk_prefix = str(jdkroot) + "/jdk"
+    e.run_cmd = fake_run_cmd
+    oldhome = os.environ.get("JAVA_HOME"); oldpath = os.environ.get("PATH", "")
+    try:
+        ok = e.run()
+        assert len(calls) == 2 and ok
+        assert os.environ["JAVA_HOME"].endswith("/jdk25"), os.environ.get("JAVA_HOME")
+        assert os.environ["PATH"].startswith(str(jdkroot) + "/jdk25/bin")
+    finally:
+        if oldhome is not None:
+            os.environ["JAVA_HOME"] = oldhome
+        else:
+            os.environ.pop("JAVA_HOME", None)
+        os.environ["PATH"] = oldpath
+    # cleanup env for other tests
+    os.environ.pop("JAVA_HOME", None)
+
+
+def test_jvm_rescue_does_not_loop_when_target_missing(tmp_path, make_engine):
+    src = tmp_path / "src" / "hy2"; out = tmp_path / "out"
+    e = make_engine(src, out)   # creates dirs
+    (src / "build.gradle.kts").write_text("")
+    calls = []
+    plugin = {"name": "Java (Gradle)", "detect": ["build.gradle.kts"],
+              "tool": "gradle", "cmd_system": "gradle assemble",
+              "out_dirs": ["build/libs"], "out_exts": [".jar"],
+              "specificity": 10, "wrapper": ""}
+    e = make_engine(src, out)
+    e.plugins = [plugin]
+    e.dep_mgr.in_docker = True
+    # needed JVM 99 does not exist on disk -> rescue skipped, fast fail
+    def fake_run_cmd(cmd, cwd):
+        calls.append(cmd)
+        return False, ["Dependency requires at least JVM runtime version 99."]
+    e.run_cmd = fake_run_cmd
+    assert e.run() is False
+    assert len(calls) <= 3
+
 
 # ------------------------------------------------------- error classification
 

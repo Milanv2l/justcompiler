@@ -27,6 +27,9 @@ class Engine:
         self._rescued_tools = set()
         self.extra_out_dirs = []
         self._net_retries = 0
+        self.last_needed_jvm = 0
+        self._jvm_bumped = 0
+        self._jdk_prefix = "/opt/jdk"
 
         with open(self.log_file, "w", encoding="utf-8") as f:
             f.write(f"=== UNIVERSAL ENGINE LOG ===\n\n")
@@ -78,7 +81,8 @@ class Engine:
 
         kw, all_output, errors = ["error:", "failed", "exception", "not supported", "syntaxerror",
                                   "cannot find", "could not resolve", "could not get",
-                                  "status code 5", "connection refused", "failed to connect"], [], []
+                                  "status code 5", "connection refused", "failed to connect",
+                                  "jvm runtime version"], [], []
         t0 = time.time()
         last_beat = t0
 
@@ -373,6 +377,10 @@ class Engine:
             return "upstream_outage"
         if "Could not GET" in text and re.search(r"Failed to connect|Could not connect|Connection refused|timed out", text):
             return "network_down"
+        m = re.search(r"requires at least JVM runtime version (\d+)", text)
+        if m:
+            self.last_needed_jvm = int(m.group(1))
+            return "jvm_too_old"
         if "OutOfMemoryError" in text or "Java heap space" in text:
             return "oom"
         m = re.search(r"(?:^|[\s/])((?::\d+:)?\s*[\w@+.-]+): command not found", text, re.M)
@@ -652,6 +660,17 @@ class Engine:
                     UI.warn(f"Network hiccup; retrying in {delay}s "
                             f"(attempt {self._net_retries}/2)...")
                     time.sleep(delay)
+                    attempt -= 1
+                    continue
+                # Gradle plugin needs a newer JVM than the entrypoint picked:
+                # switch JAVA_HOME to a higher preinstalled JDK and retry once
+                if (kind == "jvm_too_old" and self._jvm_bumped < self.last_needed_jvm
+                        and Path(self._jdk_prefix + str(self.last_needed_jvm) + "/bin/java").exists()):
+                    v = self.last_needed_jvm
+                    self._jvm_bumped = v
+                    os.environ["JAVA_HOME"] = f"{self._jdk_prefix}{v}"
+                    os.environ["PATH"] = f"{self._jdk_prefix}{v}/bin:{os.environ.get('PATH','')}"
+                    UI.warn(f"Build requires JVM {v}; switching to /opt/jdk{v} and retrying...")
                     attempt -= 1
                     continue
                 if kind == "oom":
