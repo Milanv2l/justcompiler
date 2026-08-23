@@ -129,9 +129,9 @@ if HAS_TEXTUAL:
                 id="home-head")
             yield Label("[b]" + t('title'), id="home-menu-title")
             yield ListView(
-                ListItem(Label(" [cyan]n[/]  " + t('menu_1')), name="new"),
-                ListItem(Label(" [cyan]s[/]  " + t('menu_3')), name="settings"),
-                ListItem(Label(" [cyan]q[/]  Exit"), name="quit"),
+                ListItem(Label(" [cyan]n[/]  " + t('menu_1')), id="new"),
+                ListItem(Label(" [cyan]s[/]  " + t('menu_3')), id="settings"),
+                ListItem(Label(" [cyan]q[/]  Exit"), id="quit"),
                 id="menu")
             yield Label("[b]Recent builds[/]", id="recent-title")
             yield DataTable(id="recent")
@@ -155,7 +155,8 @@ if HAS_TEXTUAL:
                               f"[{color}]{b['status']}[/]", b["target"], key=str(b["dir"]))
 
         def on_list_view_selected(self, ev):
-            name = getattr(getattr(ev.item, "name", ""), "")
+            item = ev.item
+            name = getattr(item, "id", None) or getattr(item, "name", None)
             if name == "new":
                 self.action_new_build()
             elif name == "settings":

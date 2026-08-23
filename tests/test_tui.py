@@ -91,6 +91,27 @@ async def test_app_boots_to_home_with_recent(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_home_menu_enter_opens_form_and_settings():
+    # Regression: on_list_view_selected crashed with
+    # AttributeError: 'str' object has no attribute ''
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        menu = app.screen.query_one("#menu")
+        menu.focus()
+        await pilot.press("enter")          # first item = New build
+        await pilot.pause()
+        assert isinstance(app.screen, tui.BuildFormScreen)
+        await pilot.press("escape"); await pilot.pause()
+        menu = app.screen.query_one("#menu")
+        menu.focus()
+        await pilot.press("down")           # second item = Settings
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, tui.SettingsScreen)
+
+
+@pytest.mark.asyncio
 async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     from textual.widgets import RichLog
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
