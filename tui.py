@@ -440,7 +440,13 @@ if HAS_TEXTUAL:
                 pass
 
         def action_home(self):
-            self.app.pop_screen()
+            app = self.app
+            # safety net: pop everything above Home (works from any depth)
+            while type(app.screen).__name__ != "HomeScreen" and len(app.screen_stack) > 1:
+                try:
+                    app.pop_screen()
+                except Exception:
+                    break
 
 
     class SettingsScreen(Screen):
@@ -606,6 +612,14 @@ if HAS_TEXTUAL:
                 self.run_screen.finish(result)
 
         def build_finished(self, result: dict):
+            # Drop the finished BuildRunScreen from the stack first, otherwise
+            # esc on Artifacts/Failed pops straight back into it and re-pushes
+            # this screen forever (user could never reach Home).
+            try:
+                if isinstance(self.screen, BuildRunScreen):
+                    self.pop_screen()
+            except Exception:
+                pass
             artifacts_dir = result.get("artifacts_dir")
             if artifacts_dir and Path(artifacts_dir).exists():
                 self.push_screen(ArtifactsScreen(Path(artifacts_dir), result))

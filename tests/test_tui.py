@@ -112,6 +112,57 @@ async def test_home_menu_enter_opens_form_and_settings():
 
 
 @pytest.mark.asyncio
+async def test_after_success_escape_returns_to_home(tmp_path, monkeypatch):
+    # Regression: Artifacts was pushed on top of the finished BuildRunScreen,
+    # so esc bounced BuildRun<->Artifacts forever and Home was unreachable.
+    out_dir = tmp_path / "EXECUTABLE" / "ok_1"
+    out_dir.mkdir(parents=True)
+    (out_dir / "x.bin").write_bytes(b"\x7fELFx")
+
+    def fake_execute(src, branch=None, target_override=None, lang="en"):
+        return {"exit_code": 0, "status": "success", "artifacts_dir": str(out_dir),
+                "build_folder": out_dir,
+                "summary": {"status": "success", "error_class": "", "target": "T",
+                            "artifacts": ["x"], "possible_runtime_deps": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        app.start_build("/tmp/whatever")
+        ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
+                             if app.run_screen else False)
+        assert ok
+        await pilot.press("escape"); await pilot.pause()
+        assert isinstance(app.screen, tui.ArtifactsScreen)
+        await pilot.press("escape"); await pilot.pause()
+        # THE FIX: back on Home, not bounced into finished BuildRunScreen
+        assert isinstance(app.screen, tui.HomeScreen)
+
+
+@pytest.mark.asyncio
+async def test_after_failure_can_reach_home(tmp_path, monkeypatch):
+    def fake_execute(src, branch=None, target_override=None, lang="en"):
+        return {"exit_code": 1, "status": "build_failed", "artifacts_dir": None,
+                "build_folder": None,
+                "summary": {"status": "build_failed", "error_class": "oom",
+                            "target": "T", "artifacts": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        app.start_build("/tmp/whatever")
+        ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
+                             if app.run_screen else False)
+        assert ok
+        await pilot.press("escape"); await pilot.pause()
+        assert isinstance(app.screen, tui.MessageScreen)   # fail panel
+        await pilot.press("escape"); await pilot.pause()
+        assert isinstance(app.screen, tui.HomeScreen)      # reachable now
+
+
+@pytest.mark.asyncio
 async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     from textual.widgets import RichLog
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
