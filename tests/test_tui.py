@@ -10,6 +10,19 @@ pytest.importorskip("textual")
 import justcompiler as jc
 import tui
 
+def _no_intro(monkeypatch):
+    """Suppress the welcome overlay while preserving any config stub set
+    earlier in the test."""
+    import justcompiler as jc
+    prev = jc.load_config
+    def patched():
+        cfg = dict(prev())
+        cfg.setdefault("seen_intro", True)
+        return cfg
+    monkeypatch.setattr(jc, "load_config", patched)
+
+
+
 
 # ------------------------------------------------------------------ gating
 
@@ -83,7 +96,9 @@ async def test_app_boots_to_home_with_recent(tmp_path, monkeypatch):
     base = tmp_path / "EXECUTABLE"
     d1 = base / "demo_1"; d1.mkdir(parents=True)
     (d1 / "summary.json").write_text(json.dumps({"status": "success"}))
+    monkeypatch.setattr(jc, "load_config", lambda: {"seen_intro": True})
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         assert isinstance(app.screen, tui.HomeScreen)
@@ -128,6 +143,7 @@ async def test_after_success_escape_returns_to_home(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         app.start_build("/tmp/whatever")
@@ -151,6 +167,7 @@ async def test_after_failure_can_reach_home(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         app.start_build("/tmp/whatever")
@@ -173,6 +190,7 @@ async def test_url_submit_shows_branch_picker_then_build(monkeypatch):
                         lambda url: ("main", ["dev", "v2", "main"]))
     started = {}
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         def fake_start(src, branch=None, target=None, all_targets=False):
@@ -204,6 +222,7 @@ async def test_url_branch_fetch_failure_falls_back(monkeypatch):
         raise RuntimeError("offline")
     monkeypatch.setattr(tui.jc, "fetch_remote_git_info", boom)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         def fake_start(src, branch=None, target=None, all_targets=False):
@@ -233,6 +252,7 @@ async def test_recent_builds_refresh_on_return_home(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         table = app.screen.query_one("#recent")
@@ -288,6 +308,7 @@ async def test_artifacts_install_and_undo_flow(tmp_path, monkeypatch):
                         (undo_calls.append(rec), True)[1])
 
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.pause()
         app.push_screen(tui.ArtifactsScreen(d, {
@@ -327,6 +348,7 @@ async def test_install_gate_never_blocks(monkeypatch, tmp_path):
     monkeypatch.setattr(jc, "load_config", lambda: {"host_dep_install": "never"})
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         app.push_screen(tui.ArtifactsScreen(d, {"status": "success",
@@ -354,6 +376,7 @@ async def test_progress_pane_default_and_log_toggle(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         app.start_build("/tmp/x")
@@ -394,6 +417,7 @@ async def test_checklist_shows_completed_after_finish(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         app.start_build("/tmp/x")
@@ -423,6 +447,7 @@ async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     monkeypatch.setattr(jc, "execute_build", fake_execute)
     monkeypatch.chdir(tmp_path)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
         app.start_build("/tmp/fake-src")
@@ -445,6 +470,7 @@ async def test_settings_toggle_persists(tmp_path, monkeypatch):
     cfg_file = tmp_path / "config.json"
     monkeypatch.setattr(jc, "CONFIG_FILE", cfg_file)
     app = tui.JustCompilerApp()
+    if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         app.push_screen(tui.SettingsScreen())
@@ -454,3 +480,67 @@ async def test_settings_toggle_persists(tmp_path, monkeypatch):
         app.screen.on_switch_changed(SimpleNamespace(switch=sw, value=True))
         await pilot.pause()
         assert jc.load_config()["run_tests"] is True
+
+
+@pytest.mark.asyncio
+async def test_finish_shows_clear_buttons_and_navigation(tmp_path, monkeypatch):
+    from textual.widgets import Button
+    out_dir = tmp_path / "EXECUTABLE" / "fin_1"
+    out_dir.mkdir(parents=True)
+    (out_dir / "z.bin").write_bytes(b"\x7fELF")
+    def fake_execute(src, branch=None, target_override=None, lang="en",
+                     all_targets=False):
+        return {"exit_code": 0, "status": "success", "artifacts_dir": str(out_dir),
+                "build_folder": out_dir,
+                "summary": {"status": "success", "error_class": "",
+                            "target": "Crystal", "duration_s": 3.2,
+                            "artifacts": ["z"], "possible_runtime_deps": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    _no_intro(monkeypatch)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        app.start_build("/tmp/x")
+        ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
+                             if app.run_screen else False)
+        assert ok
+        # three clear buttons exist on the finish state
+        for bid in ("bf-art", "bf-open", "bf-home"):
+            assert app.run_screen.query_one(f"#{bid}", Button)
+        # phase headline is friendly, no 'press esc' instruction anymore
+        phase = str(app.run_screen.query_one("#run-phase").render())
+        assert "succeeded" in phase and "esc" not in phase.lower()
+        # enter = view files -> ArtifactsScreen
+        await pilot.press("enter"); await pilot.pause()
+        assert isinstance(app.screen, tui.ArtifactsScreen)
+        # artifacts screen exposes the same actions as clickable buttons
+        for bid in ("ab-run", "ab-open", "ab-home"):
+            assert app.screen.query_one(f"#{bid}", Button)
+        # home button returns to HomeScreen
+        app.screen.query_one("#ab-home").press()
+        await pilot.pause()
+        assert isinstance(app.screen, tui.HomeScreen)
+
+
+@pytest.mark.asyncio
+async def test_welcome_intro_shows_once(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.json"
+    monkeypatch.setattr(jc, "CONFIG_FILE", cfg_file)
+    monkeypatch.chdir(tmp_path)
+
+    app1 = tui.JustCompilerApp()
+    async with app1.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        # first launch: welcome overlay on top of Home
+        assert isinstance(app1.screen, tui.MessageScreen)
+        await pilot.press("escape"); await pilot.pause()
+        assert isinstance(app1.screen, tui.HomeScreen)
+
+    # config now records seen_intro
+    assert json.loads(cfg_file.read_text()).get("seen_intro") is True
+
+    app2 = tui.JustCompilerApp()
+    async with app2.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        assert isinstance(app2.screen, tui.HomeScreen)   # no overlay again

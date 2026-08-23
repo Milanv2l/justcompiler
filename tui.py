@@ -331,7 +331,10 @@ if HAS_TEXTUAL:
         BINDINGS = [
             ("c", "cancel_build", "Cancel"),
             ("l", "toggle_log", "Raw output"),
-            ("escape", "done", "Done"),
+            ("escape", "done", "Next / Home"),
+            ("enter", "view_artifacts", "View files"),
+            ("o", "open_result", "Open folder"),
+            ("h", "home_now", "Home"),
         ]
         # ordered build phases; matched against engine status/output text
         STEPS = [
@@ -465,18 +468,35 @@ if HAS_TEXTUAL:
                 pass
             try:
                 self.query_one("#run-phase", Label).update(
-                    f"[b {color}]Finished: {status}[/]   "
-                    f"(exit {result['exit_code']}) — press esc")
-                btn = self.query_one("#cancel", Button)
-                btn.label = "Back to home"
-                btn.variant = "default"
-                btn.id = "back"
+                    f"[b {color}]{'✔ Build succeeded!' if status != 'build_failed' else '✖ Build failed'}[/]"
+                    + (f"   ({result['summary'].get('duration_s','?')}s)"
+                       if result.get('summary') else ""))
+            except Exception:
+                pass
+            # replace the cancel button with clear next-step buttons
+            try:
+                old_btn = self.query_one("#cancel", Button)
+                row = old_btn.parent
+                old_btn.remove()
+                row.mount(Horizontal(
+                    Button("📦 View files", variant="primary", id="bf-art"),
+                    Button("📂 Open folder", id="bf-open"),
+                    Button("🏠 Home", id="bf-home"),
+                    id="finish-btns"))
+                try:
+                    self.query_one("#bf-art", Button).focus()
+                except Exception:
+                    pass
             except Exception:
                 pass
 
         def on_button_pressed(self, ev):
             if ev.button.id == "cancel":
                 self.action_cancel_build()
+            elif ev.button.id == "bf-open":
+                self.action_open_result()
+            elif ev.button.id == "bf-home":
+                self.action_home_now()
             else:
                 self.action_done()
 
@@ -490,6 +510,38 @@ if HAS_TEXTUAL:
         def action_done(self):
             if self.finished:
                 self.app.build_finished(self.app.last_result)
+
+        def _result_dir(self):
+            d = (self.app.last_result or {}).get("artifacts_dir")
+            return Path(d) if d and Path(d).exists() else None
+
+        def action_view_artifacts(self):
+            if self.finished:
+                self.action_done()
+
+        def action_open_result(self):
+            if not self.finished:
+                return
+            import subprocess as sp
+            d = self._result_dir()
+            opener = ("explorer" if sys.platform == "win32"
+                      else "open" if sys.platform == "darwin" else "xdg-open")
+            if d:
+                try:
+                    sp.Popen([opener, str(d.resolve())],
+                             stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+                except Exception:
+                    pass
+
+        def action_home_now(self):
+            if not self.finished:
+                return
+            app = self.app
+            while type(app.screen).__name__ != "HomeScreen" and len(app.screen_stack) > 1:
+                try:
+                    app.pop_screen()
+                except Exception:
+                    break
             else:
                 self.app.pop_screen()
 
@@ -508,12 +560,40 @@ if HAS_TEXTUAL:
             self.artifacts_dir = artifacts_dir
             self.result = result
 
+        KIND_EXPLAIN = {
+            "binary": "program you can run",
+            "executable": "program",
+            "jar": "Java archive (run with java -jar)",
+            "mod": "Minecraft mod — drop into your mods folder",
+            "plugin": "server plugin",
+            "bungee-plugin": "proxy plugin",
+            "velocity-plugin": "Velocity proxy plugin",
+            "python": "Python script",
+            "js": "Node.js script",
+            "node": "Node.js script",
+            "script": "shell script",
+            "artifact": "built bundle/folder",
+        }
+
         def compose(self) -> ComposeResult:
+            summ = self.result.get("summary", {})
+            dur = summ.get("duration_s")
+            head = f"[b green]✔ Build succeeded[/]" if self.result.get("status") != "build_failed" \
+                   else "[b red]✖ Build failed[/]"
+            extra = []
+            if summ.get("target"): extra.append(str(summ["target"]))
+            if dur is not None: extra.append(f"{dur}s")
             yield Header(show_clock=False)
-            yield Label(f"[b green]✔ {self.result['status']}[/]  "
-                        f"{self.artifacts_dir.name}", id="art-head")
+            yield Label(f"{head}   {' · '.join(extra)}", id="art-head")
+            yield Horizontal(
+                Button("▶ Run selected", variant="primary", id="ab-run"),
+                Button("📂 Open folder", id="ab-open"),
+                Button("🏠 Home", id="ab-home"),
+                id="art-btns")
             yield DataTable(id="art-table")
             yield Static("", id="art-hint")
+            yield Static("[dim]↑↓ select · Enter/Run starts the selected item · "
+                         "? shows all keys[/]", id="art-help")
             yield Footer()
 
         def on_mount(self):
@@ -548,6 +628,24 @@ if HAS_TEXTUAL:
             deps = self.result.get("summary", {}).get("possible_runtime_deps", [])
             if deps:
                 hint.update(f"[yellow]possible runtime deps:[/] {', '.join(deps)}")
+            kinds = sorted({a.kind for a in arts})
+            legend = " · ".join(f"{k} = {self.KIND_EXPLAIN.get(k, 'output')}"
+                                for k in kinds if k in self.KIND_EXPLAIN)
+            if legend:
+                try:
+                    help_lbl = self.query_one("#art-help", Static)
+                    help_lbl.update("[dim]" + legend + "[/]\n" +
+                                    str(help_lbl.render()))
+                except Exception:
+                    pass
+
+        def on_button_pressed(self, ev):
+            if ev.button.id == "ab-run":
+                self.action_run_artifact()
+            elif ev.button.id == "ab-open":
+                self.action_open_folder()
+            elif ev.button.id == "ab-home":
+                self.action_home()
 
         def _selected(self):
             table = self.query_one("#art-table", DataTable)
@@ -953,6 +1051,19 @@ if HAS_TEXTUAL:
 
         def get_default_screen(self):
             return HomeScreen()
+
+        def on_mount(self):
+            cfg = jc.load_config()
+            if not cfg.get("seen_intro"):
+                jc.save_config(seen_intro=True)
+                self.push_screen(MessageScreen(
+                    "Welcome to JustCompiler!\n\n"
+                    "• Press n to start a new build (local path or git URL)\n"
+                    "• For URLs you can pick the branch\n"
+                    "• After a build: View files -> select -> Run it\n"
+                    "• esc goes back · ? shows all keys\n\n"
+                    "Press enter to get started.",
+                    title="Welcome"))
 
         def action_help(self):
             txt = (
