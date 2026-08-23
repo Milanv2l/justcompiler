@@ -370,10 +370,11 @@ if HAS_TEXTUAL:
 
         def _render_steps(self) -> str:
             out = []
+            done_all = self.finished and self._step_idx >= len(self.STEPS)
             for i, (name, _) in enumerate(self.STEPS):
-                if i < self._step_idx:
+                if i < self._step_idx or (done_all and i == len(self.STEPS) - 1):
                     out.append(f"[green]✔ {name}[/]")
-                elif i == self._step_idx:
+                elif i == self._step_idx and not done_all:
                     out.append(f"[b yellow]▶ {name}[/]")
                 else:
                     out.append(f"[dim]○ {name}[/]")
@@ -453,6 +454,15 @@ if HAS_TEXTUAL:
             self.finished = True
             status = result["status"]
             color = {"success": "green", "partial": "yellow"}.get(status, "red")
+            # advance checklist past the last step -> renders "✔ Completed"
+            self._step_idx = len(self.STEPS)
+            try:
+                self.query_one("#run-steps").update(
+                    self._render_steps()
+                    + ("\n[bold green]✔ Completed[/]" if status != "build_failed"
+                       else "\n[red]✖ Failed[/]"))
+            except Exception:
+                pass
             try:
                 self.query_one("#run-phase", Label).update(
                     f"[b {color}]Finished: {status}[/]   "

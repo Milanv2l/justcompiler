@@ -15,7 +15,7 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.4.3"
+VERSION = "2.4.4"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]

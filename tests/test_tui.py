@@ -382,6 +382,30 @@ async def test_progress_pane_default_and_log_toggle(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_checklist_shows_completed_after_finish(tmp_path, monkeypatch):
+    # Regression: checklist stayed on '▶ Save' after a successful build
+    from textual.widgets import Static
+    def fake_execute(src, branch=None, target_override=None, lang="en",
+                     all_targets=False):
+        return {"exit_code": 0, "status": "success", "artifacts_dir": None,
+                "build_folder": None,
+                "summary": {"status": "success", "error_class": "",
+                            "target": "T", "artifacts": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        app.start_build("/tmp/x")
+        ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
+                             if app.run_screen else False)
+        assert ok
+        steps = str(app.run_screen.query_one("#run-steps").render())
+        assert "Completed" in steps and "▶" not in steps
+        assert "✔ Save" in steps or "Save" in steps
+
+
+@pytest.mark.asyncio
 async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     from textual.widgets import RichLog
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
