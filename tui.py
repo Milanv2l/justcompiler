@@ -11,6 +11,7 @@ import importlib.util
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 
 import justcompiler as jc
@@ -258,11 +259,13 @@ if HAS_TEXTUAL:
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
             self.finished = False
+            self._t0 = time.time()
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
             yield Vertical(
-                Label("[b]Building…[/]", id="run-phase"),
+                Label("[b]Starting…[/]", id="run-phase"),
+                Label("", id="run-timer"),
                 ProgressBar(total=100.0, show_eta=False, id="run-bar"),
                 RichLog(highlight=False, markup=False, wrap=True, id="run-log"),
                 Horizontal(Button("Cancel build", variant="error", id="cancel")),
@@ -272,6 +275,24 @@ if HAS_TEXTUAL:
         def on_mount(self):
             log = self.query_one("#run-log", RichLog)
             log.write("Waiting for builder output…")
+            # live elapsed + engine status ticker: the screen never looks dead
+            self.set_interval(1.0, self._tick)
+
+        def _tick(self):
+            if getattr(self, "finished", False):
+                return
+            try:
+                import justcompiler as jc
+                status = getattr(jc, "CURRENT_STATUS", "") or ""
+            except Exception:
+                status = ""
+            secs = int(time.time() - self._t0)
+            mm, ss = divmod(secs, 60)
+            txt = f"⏱ {mm:02d}:{ss:02d}  ·  {status}" if status else f"⏱ {mm:02d}:{ss:02d}"
+            try:
+                self.query_one("#run-timer", Label).update(txt)
+            except Exception:
+                pass
 
         def set_phase(self, text: str):
             try:

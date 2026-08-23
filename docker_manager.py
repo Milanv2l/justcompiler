@@ -347,7 +347,9 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
                                 text=True, bufsize=1, errors="replace")
         try:
             for line in proc.stdout:
-                print(line, end="")
+                # route through core.UI so a bound TUI sink streams it live;
+                # unbound (console) mode prints exactly as before
+                UI.log(UI.DIM, "", line.rstrip("\n"))
                 log_lines.append(line)
             proc.wait()
         except KeyboardInterrupt:
