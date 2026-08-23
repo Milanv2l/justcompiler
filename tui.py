@@ -550,6 +550,7 @@ if HAS_TEXTUAL:
         BINDINGS = [
             ("r", "run_artifact", "Run"),
             ("o", "open_folder", "Open folder"),
+            ("p", "package", "Package…"),
             ("i", "install_deps", "Install deps"),
             ("u", "undo_install", "Undo install"),
             ("escape", "home", "Home"),
@@ -811,6 +812,17 @@ if HAS_TEXTUAL:
                                                  on_line=on_line)},
                     done_msg="Rollback finished.")))
 
+        def action_package(self):
+            summ = self.result.get("summary", {})
+            target_tool = {"Go (Modules)": "go",
+                           "Rust (Cargo)": "cargo"}.get(summ.get("target", ""))
+            self.app.push_screen(PackageSelectScreen(
+                artifacts_dir=self.artifacts_dir,
+                project_name=self.artifacts_dir.name.rsplit("_", 1)[0],
+                windows_ok=target_tool is not None,
+                windows_note="" if target_tool else
+                    "(Windows-.exe: only Go & Rust projects support cross-build)"))
+
         def action_home(self):
             app = self.app
             # safety net: pop everything above Home (works from any depth)
@@ -1065,6 +1077,67 @@ if HAS_TEXTUAL:
                     app.pop_screen()
                 except Exception:
                     break
+
+
+    class PackageSelectScreen(Screen):
+        BINDINGS = [("escape", "back", "Back")]
+
+        def __init__(self, artifacts_dir, project_name, windows_ok=False,
+                     windows_note=""):
+            super().__init__()
+            self.artifacts_dir = artifacts_dir
+            self.project_name = project_name
+            self.windows_ok = windows_ok
+            self.windows_note = windows_note
+
+        def compose(self) -> ComposeResult:
+            cfg = jc.load_config()
+            pre = set(cfg.get("default_packages", []))
+            yield Header(show_clock=False)
+            yield Vertical(
+                Label(f"[b]📦 Create packages[/] · {self.project_name}"),
+                Horizontal(Label("deb"), Switch(value="deb" in pre or True, id="pk-deb")),
+                Horizontal(Label("rpm"), Switch(value="rpm" in pre, id="pk-rpm")),
+                Horizontal(Label("AppImage"), Switch(value="appimage" in pre, id="pk-appimage")),
+                Horizontal(Label("Flatpak bundle (.flatpak)"),
+                           Switch(value="flatpak" in pre, id="pk-flatpak")),
+                Horizontal(Label(f"Windows .exe {'(cross-build)' if self.windows_ok else self.windows_note}"),
+                           Switch(value=False, id="pk-windows")),
+                Static("", id="pkg-status"),
+                Horizontal(
+                    Button("📦 Create packages", variant="primary", id="pk-go"),
+                    Button("Cancel", id="pk-cancel")),
+            )
+            yield Footer()
+
+        def on_button_pressed(self, ev):
+            if ev.button.id == "pk-cancel":
+                self.app.pop_screen()
+            elif ev.button.id == "pk-go":
+                self._go()
+
+        def _go(self):
+            fmts = [fid.split("-", 1)[1] for fid in
+                    ("pk-deb", "pk-rpm", "pk-appimage", "pk-flatpak", "pk-windows")
+                    if self.query_one(f"#{fid}").value]
+            if not fmts:
+                self.query_one("#pkg-status").update("[red]Pick at least one format.[/]")
+                return
+            screen = MessageScreen("$ packaging…", title="Packaging",
+                                   markup=False)
+            self.app.push_screen(screen)
+
+            def job():
+                lines = []
+                def sink(line: str):
+                    screen.app.call_from_thread(
+                        lambda l=line: screen.query_one("#msg-body", RichLog).write(l))
+                ok = docker_manager.run_packaging_container(
+                    self.artifacts_dir, ",".join(fmts), self.project_name,
+                    on_line=sink)
+                sink(f"\n[{'done' if ok else 'FAILED'}] exit code recorded")
+                self.app.call_from_thread(lambda: None)
+            threading.Thread(target=job, daemon=True).start()
 
 
     class MessageScreen(Screen):

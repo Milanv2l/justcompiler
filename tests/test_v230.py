@@ -97,3 +97,61 @@ def test_notify_never_raises(monkeypatch):
     monkeypatch.setattr(jc.sys, "platform", "linux")
     monkeypatch.setattr(jc.shutil, "which", lambda x: None)
     jc._notify("t", "b")            # must not raise
+
+
+# ------------------------------------------------------- packaging helpers
+
+def test_detect_version_sources(tmp_path):
+    from engine import detect_project_version
+    (tmp_path / "Cargo.toml").write_text('[package]\nname="x"\nversion = "1.2.3"')
+    assert detect_project_version(tmp_path) == "1.2.3"
+    (tmp_path / "Cargo.toml").unlink()
+    (tmp_path / "meson.build").write_text("project('app', version: '4.5.6')")
+    assert detect_project_version(tmp_path) == "4.5.6"
+    (tmp_path / "package.json").write_text('{"version": "7.8.9"}')
+    assert detect_project_version(tmp_path) == "7.8.9"
+    (tmp_path / "package.json").unlink()
+    (tmp_path / "meson.build").unlink()
+    assert detect_project_version(tmp_path) == "0.0.0"
+
+
+def test_sanitize_names():
+    from engine import sanitize_deb_name, sanitize_app_id
+    assert sanitize_deb_name("My Cool App!") == "my-cool-app"
+    assert sanitize_app_id("syncthing").startswith("com.justcompiler.")
+    assert "." in sanitize_app_id("castle siege")
+
+
+def test_desktop_entry_fields():
+    from engine import desktop_entry
+    d = desktop_entry("Foo", "foo-bin", "does things")
+    assert "[Desktop Entry]" in d and "Exec=foo-bin" in d and "Name=Foo" in d
+
+
+def test_rpm_spec_structure():
+    from engine import rpm_spec
+    spec = rpm_spec("app", "1.0", "desc", "payload.tar.gz")
+    for token in ("Name:           app", "Version:        1.0",
+                  "%install", "%files", "payload.tar.gz"):
+        assert token in spec, token
+
+
+def test_windows_exe_support_map():
+    import importlib, os
+    os.environ["JC_TEST"] = "1"
+    # reimport-free: use the function directly from engine namespace via module
+    import importlib.util as iu
+    spec = iu.spec_from_file_location(
+        "eng_pkg", Path(__file__).resolve().parent.parent / "engine.py")
+    m = importlib.util.module_from_spec(spec)
+    prev = sys.modules.get("engine")
+    try:
+        m.__dict__.update(sys.modules["engine"].__dict__)
+        assert m.windows_exe_supported("go") is True
+        assert m.windows_exe_supported("cargo") is True
+        assert m.windows_exe_supported("python3") is False
+    finally:
+        if prev: sys.modules["engine"] = prev
+
+
+import sys  # noqa: E402  (used by windows-support test)

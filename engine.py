@@ -853,6 +853,200 @@ class Engine:
         self.dep_mgr.cleanup()
         return self.stats['failed'] == 0
 
+    # ---------------------------------------------------------- packaging
+
+    def _pick_main_binary(self) -> Path | None:
+        cands = [p for p in self.out_root.rglob("*")
+                 if p.is_file() and not p.name.startswith("_bundle")
+                 and p.suffix in ("", ".bin")
+                 and self._looks_executable(p)]
+        return max(cands, key=lambda p: p.stat().st_size) if cands else None
+
+    def _stage_appdir(self, main_bin: Path, app_name: str,
+                      description: str) -> Path:
+        stage = Path("/workspace/pkg/AppDir")
+        shutil.rmtree(stage.parent, ignore_errors=True)
+        (stage / "usr" / "bin").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(main_bin, stage / "usr" / "bin" / main_bin.name)
+        os.chmod(stage / "usr" / "bin" / main_bin.name, 0o755)
+        apps = stage / "usr" / "share" / "applications"
+        icons = stage / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+        apps.mkdir(parents=True, exist_ok=True); icons.mkdir(parents=True, exist_ok=True)
+        (apps / f"{app_name}.desktop").write_text(
+            desktop_entry(app_name, main_bin.name, description))
+        icon_src = None
+        for pat in ("*.png", "*.svg"):
+            hits = sorted(self.out_root.rglob(pat)) or \
+                   sorted(Path("/workspace/persist").rglob(pat))
+            icon_src = hits[0] if hits else None
+            if icon_src: break
+        if icon_src:
+            shutil.copy2(icon_src, icons / f"{app_name}.png")
+        (stage / f"{app_name}.desktop").write_text(
+            desktop_entry(app_name, main_bin.name, description))
+        return stage
+
+    def cmd_packaging(self, formats_csv: str) -> int:
+        """Entry point for --packaging mode. Returns rc."""
+        formats = [f.strip() for f in formats_csv.split(",") if f.strip()]
+        mf_path = self.out_root / "build_manifest.json"
+        try:
+            manifest = json.loads(mf_path.read_text())
+        except Exception:
+            manifest = {"projects": []}
+        projects = manifest.get("projects", [])
+        main_bin = self._pick_main_binary()
+        if not main_bin:
+            UI.error("No runnable binary found to package.")
+            return 1
+        root_name = self.project_name or self.src_root.name
+        version = detect_project_version(Path("/workspace/persist"))
+        app_id = sanitize_app_id(root_name)
+        deb_name = sanitize_deb_name(root_name)
+        arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(
+            platform.machine(), platform.machine())
+        desc = f"{root_name} — built with JustCompiler"
+        pkg_dir = self.out_root / "packages"
+        pkg_dir.mkdir(exist_ok=True)
+
+        staging_usr = Path("/workspace/pkg/staging/usr/bin")
+        shutil.rmtree("/workspace/pkg", ignore_errors=True)
+        staging_usr.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(main_bin, staging_usr / main_bin.name)
+        os.chmod(staging_usr / main_bin.name, 0o755)
+
+        results = []
+        env = os.environ.copy()
+        env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+
+        def sh(cmd, on_fail=None):
+            r = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            if r.returncode != 0 and on_fail:
+                UI.warn(on_fail + " :: " + (r.stderr or r.stdout)[-200:])
+            return r.returncode == 0
+
+        if "deb" in formats:
+            ctrl_dir = Path("/workspace/pkg/staging/DEBIAN")
+            ctrl_dir.mkdir(exist_ok=True)
+            (ctrl_dir / "control").write_text(
+                deb_control(deb_name, version, arch, desc))
+            out = pkg_dir / f"{deb_name}_{version}_{arch}.deb"
+            ok = sh(["dpkg-deb", "--build", "--root-owner-group",
+                     "/workspace/pkg/staging", str(out)])
+            if ok: results.append(out.name)
+
+        if "rpm" in formats:
+            payload = Path("/workspace/pkg/payload.tar.gz")
+            with tarfile.open(payload, "w:gz") as tf:
+                tf.add("/workspace/pkg/staging/usr", arcname="usr")
+            spec = rpm_spec(deb_name, version, desc, payload.name)
+            spath = Path("/workspace/pkg/app.spec"); spath.write_text(spec)
+            buildroot = Path("/workspace/pkg/rpmbuild")
+            topdirs = ["BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS"]
+            for d in topdirs: (buildroot / d).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(payload, buildroot / "SOURCES" / payload.name)
+            shutil.copy2(spath, buildroot / "SPECS" / "app.spec")
+            ok = sh(["rpmbuild", "-bb", "--define",
+                     f"_topdir {buildroot}", str(buildroot / "SPECS" / "app.spec")])
+            rpms = list((buildroot / "RPMS").rglob("*.rpm"))
+            if ok and rpms:
+                dst = pkg_dir / rpms[0].name
+                shutil.copy2(rpms[0], dst); results.append(dst.name)
+
+        if "appimage" in formats:
+            tools_cache = Path.home() / ".cache" / "justcompiler"
+            tools_cache.mkdir(parents=True, exist_ok=True)
+            ldep = tools_cache / "linuxdeploy-x86_64.AppImage"
+            if not ldep.exists():
+                url = ("https://github.com/linuxdeploy/linuxdeploy/releases/"
+                       "download/continuous/linuxdeploy-x86_64.AppImage")
+                subprocess.run(["curl", "-fsSL", "-o", str(ldep), url], check=False)
+            if not ldep.exists():
+                UI.warn("linuxdeploy download failed; skipping AppImage")
+            else:
+                os.chmod(ldep, 0o755)
+                appdir = self._stage_appdir(main_bin, deb_name, desc)
+                ok = sh(["env",
+                         "APPIMAGE_EXTRACT_AND_RUN=1",
+                         str(ldep), "--appimage-extract-and-run",
+                         "--appdir", str(appdir),
+                         "--desktop-file", str(appdir / f"{deb_name}.desktop"),
+                         "--output", "appimage",
+                         "--destdir", str(pkg_dir)])
+                ais = list(pkg_dir.glob("*.AppImage"))
+                if ok and ais: results.append(ais[0].name)
+
+        if "flatpak" in formats:
+            fpkgs = Path("/workspace/flatpak-local"); fpkgs.mkdir(exist_ok=True)
+            bid = Path("/workspace/pkg/fp-build")
+            shutil.rmtree(bid, ignore_errors=True)
+            env2 = dict(env, XDG_DATA_HOME=str(fpkgs))
+            runtime_ref = "org.freedesktop.Platform//24.08"
+            sdk_ref = "org.freedesktop.Sdk//24.08"
+            ok_init = subprocess.run(["flatpak", "build-init", str(bid),
+                                      app_id, runtime_ref, sdk_ref],
+                                     env=env2, capture_output=True).returncode == 0
+            if ok_init:
+                files = bid / "files" / "bin"; files.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(main_bin, files / main_bin.name)
+                os.chmod(files / main_bin.name, 0o755)
+                subprocess.run(["flatpak", "build-finish", str(bid),
+                                "--command=" + main_bin.name,
+                                "--socket=x11", "--socket=wayland",
+                                "--filesystem=home"],
+                               env=env2, capture_output=True)
+                repo = Path("/workspace/pkg/fp-repo")
+                shutil.rmtree(repo, ignore_errors=True); repo.mkdir(parents=True)
+                subprocess.run(["flatpak", "build-export", str(repo), str(bid)],
+                               env=env2, capture_output=True)
+                bundle = pkg_dir / f"{root_name}-{version}.flatpak"
+                ok_b = subprocess.run(["flatpak", "build-bundle",
+                                       "--runtime-repo",
+                                       "https://flathub.org/repo/flathub.flatpakrepo",
+                                       str(repo), str(bundle), app_id],
+                                      env=env2, capture_output=True).returncode == 0
+                if ok_b: results.append(bundle.name)
+            else:
+                UI.warn("flatpak build-init failed; is 'flatpak' installed?")
+
+        if "windows" in formats:
+            tool = None
+            persist = Path("/workspace/persist")
+            if (persist / "go.mod").exists(): tool = "go"
+            elif (persist / "Cargo.toml").exists(): tool = "cargo"
+            if tool == "go":
+                win_dir = Path("/workspace/pkg/win"); win_dir.mkdir(parents=True)
+                cmd = ("cd /workspace/persist && mkdir -p build_output_win && "
+                       "GOOS=windows GOARCH=amd64 go build -o build_output_win/ ./...")
+                if subprocess.run(cmd, shell=True, cwd="/workspace/persist").returncode == 0:
+                    exes = sorted((persist / "build_output_win").glob("*.exe"))
+                    for exe in exes:
+                        dst = pkg_dir / exe.name; shutil.copy2(exe, dst)
+                        results.append(dst.name)
+            elif tool == "cargo":
+                cmd = ("bash -lc 'rustup target add x86_64-pc-windows-gnu && "
+                       "cd /workspace/persist && cargo build --release "
+                       "--target x86_64-pc-windows-gnu'")
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                exe = Path("/workspace/persist/target/x86_64-pc-windows-gnu/release")
+                found = list(exe.glob("*.exe")) if res.returncode == 0 else []
+                for exe_f in found:
+                    dst = pkg_dir / exe_f.name; shutil.copy2(exe_f, dst)
+                    results.append(dst.name)
+            if not results or True:
+                pass
+
+        # register packaged files in the manifest so the host sees them
+        for p in sorted(pkg_dir.iterdir()):
+            manifest["projects"].append({"name": root_name, "lang": "package",
+                                         "time": 0, "items": [{"name": "packages/" + p.name}]})
+            shutil.copy2(p, self.out_root / "packages" / p.name) if p.parent == pkg_dir else None
+        mf_path.write_text(json.dumps(manifest, indent=4))
+        UI.log(UI.GREEN, "Packaging", f"created {len(results)} package(s): "
+               + ", ".join(results))
+        return 0 if results else 1
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--src", required=True)
@@ -862,9 +1056,87 @@ if __name__ == "__main__":
     p.add_argument("--lang", default="en")
     p.add_argument("--filter", default="")
     p.add_argument("--name", default="")
+    p.add_argument("--packaging", action="store_true")
+    p.add_argument("--formats", default="deb,appimage")
     args = p.parse_args()
 
     core.set_lang(args.lang)
+    if args.packaging:
+        e = Engine(Path(args.src), Path(args.out), args.test,
+                   auto_install=args.auto_install, project_name=args.name)
+        sys.exit(e.cmd_packaging(args.formats))
     ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install,
                 project_name=args.name).run(filter_name=args.filter)
     sys.exit(0 if ok else 1)
+
+# ================================================================ packaging
+# v2.7.0 — post-build packaging: deb / rpm / AppImage / flatpak-bundle /
+# windows-exe (Go & Rust). Runs inside a lightweight packaging container.
+
+def detect_project_version(root: Path) -> str:
+    """Best-effort version detection across ecosystems."""
+    import re as _re
+    probes = [
+        ("pyproject.toml", _re.compile(r'^version\s*=\s*"([^"]+)"', _re.M)),
+        ("Cargo.toml",     _re.compile(r'^version\s*=\s*"([^"]+)"', _re.M)),
+        ("package.json",   None),                       # json below
+        ("meson.build",    _re.compile(r"version\s*:\s*'([^']+)'", _re.M)),
+        ("gradle.properties", _re.compile(r"^version\s*=\s*(\S+)", _re.M)),
+    ]
+    for fname, rx in probes:
+        f = root / fname
+        if not f.is_file():
+            continue
+        try:
+            if fname == "package.json":
+                v = json.loads(f.read_text()).get("version")
+                if v: return str(v)
+            else:
+                m = rx.search(f.read_text(errors="ignore"))
+                if m: return m.group(1)
+        except Exception:
+            continue
+    return "0.0.0"
+
+
+def sanitize_deb_name(name: str) -> str:
+    n = re.sub(r"[^a-z0-9+.-]", "-", name.lower()).strip("-")
+    return n or "app"
+
+
+def sanitize_app_id(name: str) -> str:
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name) if p]
+    if len(parts) == 1:
+        parts = ["io", "justcompiler"] + parts
+    return ".".join(p.capitalize() if i == 0 and False else p for i, p in enumerate(parts)) \
+        if False else "com.justcompiler." + "".join(p.capitalize() for p in parts[:2] or ["App"])
+
+
+def desktop_entry(name: str, binary: str, comment: str = "") -> str:
+    return (f"[Desktop Entry]\nType=Application\n"
+            f"Name={name}\nExec={binary}\n"
+            f"Comment={comment}\nTerminal=true\nCategories=Development;\n")
+
+
+def deb_control(name: str, version: str, arch: str, description: str) -> str:
+    return (f"Package: {name}\nVersion: {version}\nSection: utils\n"
+            f"Priority: optional\nArchitecture: {arch}\n"
+            f"Maintainer: JustCompiler <noreply@localhost>\n"
+            f"Description: {description}\n")
+
+
+def rpm_spec(name: str, version: str, description: str,
+             payload_tar: str) -> str:
+    return (f"Name:           {name}\nVersion:        {version}\n"
+            f"Release:        1%{{?dist}}\nSummary:        {description}\n"
+            f"License:        Unknown\nBuildArch:      x86_64\n\n"
+            f"Source0:        {payload_tar}\n\n"
+            f"%description\n{description}\n\n%prep\n"
+            f"mkdir -p payload && tar -xf %{{SOURCE0}} -C payload\n\n"
+            f"%install\nmkdir -p %{{buildroot}}/usr\n"
+            f"cp -r payload/usr/* %{{buildroot}}/usr/\n\n"
+            f"%files\n/usr/*\n")
+
+
+def windows_exe_supported(tool: str) -> bool:
+    return tool in ("go", "cargo", "rustc")

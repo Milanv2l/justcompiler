@@ -122,6 +122,21 @@ If [Textual](https://pypi.org/project/textual/) isn't installed, JustCompiler
 falls back to the classic ANSI panels and prints:
 `pip install --user textual` to enable the TUI. Headless mode is unaffected.
 
+## Packaging (deb / rpm / AppImage / .flatpak / Windows-.exe)
+
+After a successful build, press **p** on the Artifacts screen to create
+installable packages from the harvested binaries:
+
+- **deb** via dpkg-deb · **rpm** via rpmbuild · **AppImage** via linuxdeploy
+- **Flatpak**: a real single-file `.flatpak` bundle with prebuilt binaries
+  (end users install with `flatpak install --user ./app.flatpak`; the
+  Freedesktop runtime is auto-pulled)
+- **Windows .exe** for Go & Rust projects (cross-build pass; other languages
+  can't cross-compile to exe from Linux)
+
+Headless: `--package deb,rpm,appimage` after `--build`. Results land in
+`packages/` inside the build folder and are listed in `summary.json`.
+
 ## When a build fails
 
 Failed runs automatically write `failure_report.txt` next to the other logs:
@@ -143,6 +158,7 @@ clipboard in one keystroke — plus **o** to open the folder.
   "theme": "default",          // "default" | "minimal" (no panel borders)
   "run_tests": false,          // pass --test to the engine where supported
   "auto_install_deps": false,  // headless: install recorded runtime deps after build
+  "default_packages": [],      // preselect packaging formats, e.g. ["deb","appimage"]
   "host_dep_install": "ask",   // TUI 'i' action: "ask" | "always" | "never"
   "keep_builds": 0,            // retention: keep only newest N EXECUTABLE folders
   "notify": true,              // desktop notification when a build finishes

@@ -16,7 +16,7 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.6.1"
+VERSION = "2.7.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
@@ -1600,6 +1600,7 @@ if __name__ == "__main__":
     target_override = None
     branch_arg = None
     all_targets_arg = False
+    package_arg = None
     for i, arg in enumerate(sys.argv):
         if arg == "--build" and i + 1 < len(sys.argv):
             raw_build = sys.argv[i + 1]      # keep raw: Path() mangles 'https://'
@@ -1609,11 +1610,23 @@ if __name__ == "__main__":
             branch_arg = sys.argv[i + 1]
         elif arg == "--all-targets":
             all_targets_arg = True
+        elif arg == "--package" and i + 1 < len(sys.argv):
+            package_arg = sys.argv[i + 1]
 
     if raw_build:
         result = execute_build(raw_build, branch=branch_arg,
                                target_override=target_override, lang=selected_lang,
                                all_targets=all_targets_arg)
+        if result["status"] in ("success", "partial") and package_arg:
+            import docker_manager as _dm
+            okp = _dm.run_packaging_container(
+                result["artifacts_dir"], package_arg,
+                Path(result["artifacts_dir"]).name.rsplit("_", 1)[0])
+            pkgs = sorted(p.name for p in
+                          Path(result["artifacts_dir"], "packages").iterdir()) \
+                   if Path(result["artifacts_dir"], "packages").is_dir() else []
+            result["summary"]["packages"] = pkgs
+            print(json.dumps({"packaging_ok": okp, "packages": pkgs}, indent=2))
         print(json.dumps(result["summary"], indent=2))
         sys.exit(result["exit_code"])
 
