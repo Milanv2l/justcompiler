@@ -146,6 +146,11 @@ if HAS_TEXTUAL:
                 table.zebra_stripes = True
             self.action_refresh()
 
+        def on_screen_resume(self):
+            # Home stays mounted at the bottom of the stack: refresh the
+            # recent-builds list every time it becomes visible again
+            self.action_refresh()
+
         def action_refresh(self):
             table = self.query_one("#recent", DataTable)
             table.clear()

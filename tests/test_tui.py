@@ -219,6 +219,35 @@ async def test_url_branch_fetch_failure_falls_back(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_recent_builds_refresh_on_return_home(tmp_path, monkeypatch):
+    # Regression: Home stays mounted, so the recent list was stale after a
+    # build — the just-finished project never appeared when going back.
+    out_dir = tmp_path / "EXECUTABLE" / "fresh_1"
+    def fake_execute(src, branch=None, target_override=None, lang="en"):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "y.bin").write_bytes(b"\x7fELF")
+        return {"exit_code": 0, "status": "success", "artifacts_dir": str(out_dir),
+                "build_folder": out_dir,
+                "summary": {"status": "success", "error_class": "", "target": "T",
+                            "artifacts": ["y"], "possible_runtime_deps": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        table = app.screen.query_one("#recent")
+        rows_before = table.row_count
+        app.start_build("/tmp/whatever")
+        ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
+                             if app.run_screen else False)
+        assert ok
+        await pilot.press("escape"); await pilot.pause()   # -> Artifacts
+        await pilot.press("escape"); await pilot.pause()   # -> Home
+        assert isinstance(app.screen, tui.HomeScreen)
+        assert table.row_count == rows_before + 1          # fresh entry visible
+
+
+@pytest.mark.asyncio
 async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     from textual.widgets import RichLog
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
