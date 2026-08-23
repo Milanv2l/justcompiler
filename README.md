@@ -95,6 +95,25 @@ Inside the sandbox the engine retries failures with targeted rescues:
 Long-running steps print a heartbeat every 30s with the latest output line, so
 silent phases (dependency downloads) never look like a hang.
 
+## Interactive TUI
+
+Running `python3 justcompiler.py` without `--build` opens a full-screen TUI
+(built on [Textual](https://textual.textualize.io/)) when a terminal is
+available:
+
+- **Home** — status header, menu, and your 10 most recent builds (with status)
+- **Build form** — path or git URL, optional branch, target selector (`auto` or any plugin)
+- **Live build** — streaming log, docker-build progress bar, `c` to cancel the sandbox
+- **Artifacts** — table of harvested outputs; `r` runs one (output streams in-app), `o` opens the folder
+- **Settings** — language, updates, tests, auto-install-deps, sandbox profile, force update
+
+Everything is keyboard-first (`n` new · `s` settings · `r` refresh/run ·
+`c` cancel · `esc` back · `q` quit); mouse clicks work as a bonus.
+
+If [Textual](https://pypi.org/project/textual/) isn't installed, JustCompiler
+falls back to the classic ANSI panels and prints:
+`pip install --user textual` to enable the TUI. Headless mode is unaffected.
+
 ## Configuration (`config.json`)
 
 ```jsonc

@@ -23,8 +23,13 @@ class _SpinnerContext:
     def set_progress(self, pct: float, eta: float = 0):
         self._pct = pct
         self._bar = True
+        if UI._sink is not None:
+            UI._emit("progress", pct=pct, text=self.text)
 
     def spin(self):
+        if UI._sink is not None:
+            # TUI mode: no console animation; phase event only
+            return
         t0 = time.time()
         while self.is_spinning:
             i = int((time.time() - t0) * 10) % len(self.spinner_chars)
@@ -44,6 +49,9 @@ class _SpinnerContext:
 
     def __enter__(self):
         self.is_spinning = True
+        if UI._sink is not None:
+            UI._emit("phase", text=self.text)
+            return self
         self.thread = threading.Thread(target=self.spin, daemon=True)
         self.thread.start()
         return self
@@ -55,6 +63,12 @@ class _SpinnerContext:
         self.is_spinning = False
         if self.thread:
             self.thread.join()
+        if UI._sink is not None:
+            if exc_type is not None or not self.success:
+                UI.error(self.text)
+            else:
+                UI.success(self.text)
+            return
         sys.stdout.write('\r\033[K')
         sys.stdout.flush()
         if exc_type is not None or not self.success:
@@ -75,19 +89,44 @@ class UI:
     BOLD = "\033[1m"
     DIM = "\033[2m"
     border_enabled = True
+    _sink = None   # optional TUI event sink; when bound, console output is suppressed
+
+    @classmethod
+    def bind(cls, sink):
+        """Attach a TUI sink: callable(event_dict). Console output is muted."""
+        cls._sink = sink
+
+    @classmethod
+    def unbind(cls):
+        cls._sink = None
+
+    @classmethod
+    def _emit(cls, kind: str, **data):
+        if cls._sink is not None:
+            try:
+                cls._sink({"event": kind, **data})
+            except Exception:
+                pass
 
     @classmethod
     def log(cls, color, prefix, msg):
+        if cls._sink is not None:
+            cls._emit("log", prefix=prefix, msg=msg)
+            return
         print(f"{color}{prefix}{cls.RESET} {msg}")
 
     @staticmethod
     def clear():
-        """Smoothly clears the terminal screen."""
+        if UI._sink is not None:
+            return
         sys.stdout.write("\033[H\033[2J")
         sys.stdout.flush()
 
     @staticmethod
     def draw_panel(title: str, lines: list, width: int = 0, color: str = CYAN):
+        if UI._sink is not None:
+            UI._emit("panel", title=title, lines=list(lines))
+            return
         ansi_escape = re.compile(r'\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])')
         term_width = shutil.get_terminal_size().columns if hasattr(shutil, 'get_terminal_size') else 80
         width = width if width > 0 else max(60, term_width - 2)
@@ -126,22 +165,32 @@ class UI:
 
     @staticmethod
     def info(msg: str):
+        if UI._sink is not None:
+            UI._emit("info", msg=msg); return
         print(f"{UI.CYAN}❯{UI.RESET} {msg}")
 
     @staticmethod
     def success(msg: str):
+        if UI._sink is not None:
+            UI._emit("success", msg=msg); return
         print(f"{UI.GREEN}✔{UI.RESET} {msg}")
 
     @staticmethod
     def warn(msg: str):
+        if UI._sink is not None:
+            UI._emit("warn", msg=msg); return
         print(f"{UI.YELLOW}⚡{UI.RESET} {msg}")
 
     @staticmethod
     def error(msg: str):
+        if UI._sink is not None:
+            UI._emit("error", msg=msg); return
         print(f"{UI.RED}✖{UI.RESET} {msg}")
 
     @staticmethod
     def header(title: str):
+        if UI._sink is not None:
+            UI._emit("info", msg=f"── {title} ──"); return
         print(f"\n{UI.BOLD}{UI.MAGENTA}── {title} ──{UI.RESET}")
 
     @staticmethod

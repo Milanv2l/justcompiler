@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import justcompiler as jc
+import core
 
 unix_only = pytest.mark.skipif(sys.platform == "win32",
                                reason="artifact branch is Unix-only")
@@ -456,6 +457,40 @@ def test_test_binaries_demoted_in_picker():
     assert jc._is_main_artifact("fmt_args-test", "binary", 500_000) is False
     assert jc._is_main_artifact("foo.test", "binary", 500_000) is False
     assert jc._is_main_artifact("alacritty", "binary", 5_000_000) is True
+
+
+# ------------------------------------------------------------ ui event sink
+
+def test_ui_sink_receives_events_and_mutes_console(capsys):
+    events = []
+    core.UI.bind(events.append)
+    try:
+        core.UI.info("hello")
+        core.UI.log(core.UI.GREEN, "tag", "msg")
+        core.UI.draw_panel("T", ["l1", "l2"])
+    finally:
+        core.UI.unbind()
+    kinds = [e["event"] for e in events]
+    assert kinds == ["info", "log", "panel"]
+    assert events[0]["msg"] == "hello"
+    assert events[2]["lines"] == ["l1", "l2"]
+    out = capsys.readouterr().out
+    assert "hello" not in out  # console muted while bound
+
+
+def test_spinner_suppressed_when_sink_bound(capsys):
+    import time as _time
+    events = []
+    core.UI.bind(events.append)
+    try:
+        with core.UI.spinner("working") as sp:
+            sp.set_progress(50)
+            _time.sleep(0.05)  # would animate if not suppressed
+    finally:
+        core.UI.unbind()
+    kinds = [e["event"] for e in events]
+    assert "phase" in kinds and "progress" in kinds
+    assert capsys.readouterr().out == ""
 
 
 # ------------------------------------------------------------ version sync

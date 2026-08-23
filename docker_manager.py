@@ -101,6 +101,21 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
         flags += ["--cpus", str(cfg["cpu_limit"])]
     return flags
 
+ACTIVE_RUN_NAME = {"name": None}
+
+def cancel_active_run() -> bool:
+    """Kill the currently running sandbox container, if any (TUI Cancel)."""
+    name = ACTIVE_RUN_NAME.get("name")
+    if not name:
+        return False
+    try:
+        docker_cmd = ["docker"] if platform.system() == "Windows" else ["sudo", "docker"]
+        subprocess.run(docker_cmd + ["rm", "-f", name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
 def _gc_stale_runs(docker_cmd: list, max_age_h: float = 6.0):
     """Best-effort removal of leftover justcompiler_run_* containers from
     crashed sessions older than max_age_h hours."""
@@ -307,6 +322,7 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
     # All cache dirs are mounted into the container for optimal reuse
     # unique name per run so parallel builds never kill each other
     run_name = f"justcompiler_run_{secrets.token_hex(4)}"
+    ACTIVE_RUN_NAME["name"] = run_name
     subprocess.run(docker_cmd + ["rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run_cmd = docker_cmd + ["run", "--name", run_name] + _sandbox_flags(java_version, cfg, extra_env)
     run_cmd += [

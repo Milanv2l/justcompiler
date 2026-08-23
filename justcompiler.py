@@ -14,10 +14,10 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
-UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "plugins.json", "checksums.txt"]
+UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "plugins.json", "checksums.txt"]
 
 def verify_checksum(file_path: str, expected_hash: str) -> bool:
     sha256 = hashlib.sha256()
@@ -354,6 +354,120 @@ def _error_class_from_log(build_folder: Path) -> str:
     probe = _eng.Engine.__new__(_eng.Engine)
     probe.last_missing_tool = ""
     return probe.classify_errors(log)
+
+def execute_build(raw_build: str, branch: str | None = None,
+                  target_override: str | None = None, lang: str = "en") -> dict:
+    """Shared build job used by BOTH the TUI and headless mode.
+    Accepts a local path or git URL; emits progress through core.UI (so any
+    bound sink receives live events). Never calls sys.exit.
+
+    Returns {"exit_code", "status", "summary", "artifacts_dir", "build_folder"}."""
+    core.set_lang(lang)
+    commit = ""
+    # --- resolve input ------------------------------------------------------
+    if _is_git_url(raw_build):
+        set_current_status(f"Cloning {raw_build[:60]}...")
+        try:
+            target, _used_branch, commit = _clone_to_cache(raw_build, branch)
+            UI.success(f"Cloned ({_used_branch} @ {commit})")
+        except Exception as e:
+            UI.error(f"Clone failed: {e}")
+            summary = _summarize("invalid_input", "clone_failed", raw_build, None,
+                                 0.0, Path("."), {}, commit="")
+            return {"exit_code": 2, "status": "invalid_input",
+                    "summary": summary, "artifacts_dir": None, "build_folder": None}
+    else:
+        target = Path(raw_build)
+
+    if not target.exists():
+        UI.error(t('err_dir'))
+        summary = _summarize("invalid_input", "path_missing", str(raw_build), None,
+                             0.0, Path("."), {}, commit=commit)
+        return {"exit_code": 2, "status": "invalid_input",
+                "summary": summary, "artifacts_dir": None, "build_folder": None}
+
+    artifacts_folder = Path("./EXECUTABLE")
+    artifacts_folder.mkdir(exist_ok=True)
+
+    # --- plan ---------------------------------------------------------------
+    set_current_status("Scanning project...")
+    targets = _scan_targets(target)
+    target_filter = target_override or _auto_select_target(target, targets)
+    if target_filter:
+        UI.log(UI.GREEN, t('build_selected'), target_filter)
+    else:
+        UI.log(UI.YELLOW, t('build_auto'), "")
+
+    proj_cfg = load_project_config(target)
+    if proj_cfg.get("target") and not target_override:
+        target_filter = proj_cfg["target"]
+        UI.log(UI.GREEN, t('build_selected'), f"{target_filter} (.justcompiler.json)")
+    tests = load_config().get("run_tests", False) or bool(proj_cfg.get("run_tests"))
+    if tests:
+        UI.info(t('test_prompt') + " " + t('settings_on'))
+
+    java_ver = proj_cfg.get("java_version") or _detect_java_version(target)
+    if java_ver:
+        UI.log(UI.GREEN, "Java", f"using version {java_ver}")
+
+    extra_env = dict(proj_cfg.get("env", {}))
+    avail_gb = _available_mem_gb()
+    if avail_gb is not None:
+        heap = max(2, min(12, int(avail_gb * 0.7)))
+        extra_env.setdefault("JC_GRADLE_HEAP", str(heap))
+        UI.log(UI.DIM, "", f"Gradle heap clamped to {heap}g (host available: {avail_gb:.1f}g)")
+
+    base_image = load_config().get("base_image", "ubuntu:24.04")
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    t0_run = time.time()
+    project_name = target.resolve().name
+    if commit:
+        project_name = project_name.rsplit("-", 1)[0]
+    build_folder = artifacts_folder / f"{project_name}_{ts}"
+    build_folder.mkdir(parents=True, exist_ok=True)
+
+    sandbox_cfg = load_config()
+    for k in ("profile", "network", "memory_limit", "cpu_limit"):
+        if k in proj_cfg:
+            key = {"network": "sandbox_network"}.get(k, k)
+            sandbox_cfg[key] = proj_cfg[k]
+
+    # --- run ----------------------------------------------------------------
+    success = docker_manager.bootstrap_sandbox(
+        target_path=target,
+        artifacts_path=build_folder,
+        run_tests=tests,
+        lang=lang,
+        set_status_fn=set_current_status,
+        base_image=base_image,
+        target_filter=target_filter,
+        java_version=java_ver,
+        extra_env=extra_env,
+        project_name=project_name
+    )
+
+    elapsed = round(time.time() - t0_run, 1)
+    try:
+        manifest = json.loads((build_folder / "build_manifest.json").read_text())
+    except Exception:
+        manifest = {"projects": []}
+    has_artifacts = bool(manifest.get("projects"))
+    if success and has_artifacts:
+        status = "success"
+    elif not success and has_artifacts:
+        status = "partial"
+    else:
+        status = "build_failed"
+    summary = _summarize(status, "" if status == "success" else _error_class_from_log(build_folder),
+                         target_filter, java_ver, elapsed, build_folder,
+                         manifest, commit=commit)
+    try:
+        (build_folder / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    return {"exit_code": {"success": 0, "partial": 3}.get(status, 1),
+            "status": status, "summary": summary,
+            "artifacts_dir": str(build_folder), "build_folder": build_folder}
 
 def _available_mem_gb() -> float | None:
     """Best-effort host available memory in GB (Linux /proc/meminfo)."""
@@ -1278,10 +1392,9 @@ if __name__ == "__main__":
     check_for_updates()
 
     # Headless mode: --build PATH|URL [--target NAME] [--branch B]
-    build_path = None
+    raw_build = None
     target_override = None
     branch_arg = None
-    raw_build = None
     for i, arg in enumerate(sys.argv):
         if arg == "--build" and i + 1 < len(sys.argv):
             raw_build = sys.argv[i + 1]      # keep raw: Path() mangles 'https://'
@@ -1290,150 +1403,74 @@ if __name__ == "__main__":
         elif arg == "--branch" and i + 1 < len(sys.argv):
             branch_arg = sys.argv[i + 1]
 
-    headless_commit = ""
-    if raw_build and _is_git_url(raw_build):
-        set_current_status(f"Cloning {raw_build[:60]}...")
-        show_tui_header()
+    if raw_build:
+        result = execute_build(raw_build, branch=branch_arg,
+                               target_override=target_override, lang=selected_lang)
+        print(json.dumps(result["summary"], indent=2))
+        sys.exit(result["exit_code"])
+
+    # Interactive mode: prefer the Textual TUI, fall back to the legacy
+    # ANSI flow when textual isn't installed or stdout isn't a terminal.
+    try:
+        import tui as tui_mod
+        if tui_mod.should_use_textual():
+            sys.exit(tui_mod.launch_tui())
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+    if sys.stdout.isatty():
         try:
-            build_path, _used_branch, headless_commit = _clone_to_cache(raw_build, branch_arg)
-            UI.success(f"Cloned ({_used_branch} @ {headless_commit})")
-        except Exception as e:
-            UI.error(f"Clone failed: {e}")
-            print(json.dumps({"status": "invalid_input", "error_class": "clone_failed",
-                              "target": raw_build}, indent=2))
-            sys.exit(2)
-    elif raw_build:
-        build_path = Path(raw_build)
+            import importlib.util as _ilu
+            if _ilu.find_spec("textual") is None:
+                UI.warn("Tip: install 'pip install --user textual' for the new full-screen TUI.")
+        except Exception:
+            pass
 
     artifacts_folder = Path("./EXECUTABLE")
     artifacts_folder.mkdir(exist_ok=True)
 
     while True:
         set_current_status("Awaiting instructions")
-        if not build_path:
-            show_tui_header()
-            menu_items = [
-                f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
-                f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
-                f"{UI.YELLOW} {t('menu_3')}{UI.RESET}",
-                f"{UI.RED} {t('menu_4')}{UI.RESET}"
-            ]
-            UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
-            sys.stdout.flush()
-            choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('choice_prompt')}{UI.RESET}").strip()
-            target = None
-            if choice == "1":
-                UI.info(t('path_prompt'))
-                path_input = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
-                target = Path(path_input) if path_input else Path(".")
-            elif choice == "2":
-                UI.info(t('git_prompt'))
-                url = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
-                if url:
-                    target = handle_remote_git(url)
-            elif choice == "3":
-                selected_lang = handle_settings(selected_lang)
-                continue
-            else:
-                UI.clear()
-                sys.exit(0)
+        show_tui_header()
+        menu_items = [
+            f"{UI.CYAN} {t('menu_1')}{UI.RESET}",
+            f"{UI.CYAN} {t('menu_2')}{UI.RESET}",
+            f"{UI.YELLOW} {t('menu_3')}{UI.RESET}",
+            f"{UI.RED} {t('menu_4')}{UI.RESET}"
+        ]
+        UI.draw_panel(t('title'), menu_items, color=UI.CYAN)
+        sys.stdout.flush()
+        choice = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}{t('choice_prompt')}{UI.RESET}").strip()
+        target = None
+        if choice == "1":
+            UI.info(t('path_prompt'))
+            path_input = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
+            target = Path(path_input) if path_input else Path(".")
+        elif choice == "2":
+            UI.info(t('git_prompt'))
+            url = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}").strip()
+            if url:
+                target = handle_remote_git(url)
+        elif choice == "3":
+            selected_lang = handle_settings(selected_lang)
+            continue
         else:
-            target = build_path
+            UI.clear()
+            sys.exit(0)
 
         if not target or not target.exists():
             UI.error(t('err_dir'))
-            if build_path:
-                sys.exit(2)
             time.sleep(2)
             continue
 
-        # Scan and auto-select build target
-        set_current_status("Scanning project...")
-        show_tui_header()
-        targets = _scan_targets(target)
-        target_filter = target_override or _auto_select_target(target, targets)
-        if target_filter:
-            UI.log(UI.GREEN, t('build_selected'), target_filter)
-        else:
-            UI.log(UI.YELLOW, t('build_auto'), "")
-
-        # Repo-owned overrides (.justcompiler.json) beat auto-detection,
-        # CLI flags beat project config.
-        proj_cfg = load_project_config(target)
-        if proj_cfg.get("target") and not target_override:
-            target_filter = proj_cfg["target"]
-            UI.log(UI.GREEN, t('build_selected'), f"{target_filter} (.justcompiler.json)")
-        tests = load_config().get("run_tests", False) or bool(proj_cfg.get("run_tests"))
-        if tests:
-            UI.info(t('test_prompt') + " " + t('settings_on'))
-
-        java_ver = proj_cfg.get("java_version") or _detect_java_version(target)
-        if java_ver:
-            UI.log(UI.GREEN, "Java", f"using version {java_ver}")
-
-        # Clamp Gradle heap to what the host can actually provide
-        extra_env = dict(proj_cfg.get("env", {}))
-        avail_gb = _available_mem_gb()
-        if avail_gb is not None:
-            heap = max(2, min(12, int(avail_gb * 0.7)))
-            extra_env.setdefault("JC_GRADLE_HEAP", str(heap))
-            UI.log(UI.DIM, "", f"Gradle heap clamped to {heap}g (host available: {avail_gb:.1f}g)")
-
-        base_image = load_config().get("base_image", "ubuntu:24.04")
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        t0_run = time.time()
-        project_name = target.resolve().name
-        if headless_commit:
-            # cloned repos live in cache dirs like 'rich-<hash>': strip the hash
-            project_name = project_name.rsplit("-", 1)[0]
-        build_folder = artifacts_folder / f"{project_name}_{ts}"
-        build_folder.mkdir(parents=True, exist_ok=True)
-
-        # sandbox knobs: global config < project overrides
-        sandbox_cfg = load_config()
-        for k in ("profile", "network", "memory_limit", "cpu_limit"):
-            if k in proj_cfg:
-                key = {"network": "sandbox_network"}.get(k, k)
-                sandbox_cfg[key] = proj_cfg[k]
-
-        success = docker_manager.bootstrap_sandbox(
-            target_path=target,
-            artifacts_path=build_folder,
-            run_tests=tests,
-            lang=selected_lang,
-            set_status_fn=set_current_status,
-            base_image=base_image,
-            target_filter=target_filter,
-            java_version=java_ver,
-            extra_env=extra_env,
-            project_name=project_name
-        )
-
-        if build_path:
-            elapsed = round(time.time() - t0_run, 1)
-            try:
-                manifest = json.loads((build_folder / "build_manifest.json").read_text())
-            except Exception:
-                manifest = {"projects": []}
-            has_artifacts = bool(manifest.get("projects"))
-            if success and has_artifacts:
-                status = "success"
-            elif not success and has_artifacts:
-                status = "partial"
-            else:
-                status = "build_failed"
-            summary = _summarize(status, "" if status == "success" else _error_class_from_log(build_folder),
-                                 target_filter, java_ver, elapsed, build_folder,
-                                 manifest, commit=headless_commit)
-            try:
-                (build_folder / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-            print(json.dumps(summary, indent=2))
-            sys.exit({"success": 0, "partial": 3}.get(status, 1))
+        # Interactive build: same shared job as headless/TUI, console events
+        result = execute_build(str(target), target_override=None, lang=selected_lang)
+        success = result["status"] in ("success", "partial")
+        build_folder = Path(result["artifacts_dir"]) if result["artifacts_dir"] else None
 
         sys.stdout.flush()
-        if success and any(build_folder.iterdir()):
+        if success and build_folder and any(build_folder.iterdir()):
             artifacts = _scan_artifacts(build_folder)
             if artifacts:
                 selected = _show_artifact_selection(artifacts)
