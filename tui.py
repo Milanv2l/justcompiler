@@ -213,12 +213,10 @@ if HAS_TEXTUAL:
                 Label("Local path or git URL"),
                 Input(placeholder="/path/to/project  or  https://github.com/user/repo",
                       id="src"),
-                Label("Branch (optional, URLs only)"),
-                Input(placeholder="default", id="branch"),
                 Label("Build target"),
                 Select([(n, n) for n in plugin_names], value="auto", id="target"),
                 Horizontal(
-                    Button("Build  ⏎", variant="primary", id="go"),
+                    Button("Continue  ⏎", variant="primary", id="go"),
                     Button("Cancel", id="cancel"),
                 ),
                 Static("", id="form-error"),
@@ -236,18 +234,84 @@ if HAS_TEXTUAL:
 
         def _submit(self):
             src = self.query_one("#src", Input).value.strip()
-            branch = self.query_one("#branch", Input).value.strip() or None
             target = self.query_one("#target", Select).value
             err = self.query_one("#form-error", Static)
             if not src:
                 err.update("[red]Enter a path or URL first.[/]")
                 return
-            if not jc._is_git_url(src) and not Path(src).expanduser().exists():
+            target_arg = None if target in ("auto", "", None) else target
+
+            if jc._is_git_url(src):
+                # pick a branch from the remote before building
+                err.update("[yellow]Fetching branches…[/]")
+                def fetch_job():
+                    try:
+                        default_branch, branches = jc.fetch_remote_git_info(src)
+                        self.app.call_from_thread(
+                            self._open_branch_select, src, target_arg,
+                            default_branch, branches)
+                    except Exception as e:
+                        msg = f"[red]Branch fetch failed ({str(e)[:80]}). Using default branch.[/]"
+                        self.app.call_from_thread(self._fetch_failed, src, target_arg, msg)
+                threading.Thread(target=fetch_job, daemon=True).start()
+                return
+
+            if not Path(src).expanduser().exists():
                 err.update(f"[red]Path does not exist:[/] {src}")
                 return
             err.update("")
-            target_arg = None if target in ("auto", "", None) else target
-            self.app.start_build(src, branch=branch, target=target_arg)
+            self.app.start_build(src, branch=None, target=target_arg)
+
+        def _fetch_failed(self, src, target_arg, msg):
+            try:
+                self.query_one("#form-error", Static).update(msg)
+            except Exception:
+                pass
+            self.app.start_build(src, branch=None, target=target_arg)
+
+        def _open_branch_select(self, src, target_arg, default_branch, branches):
+            try:
+                self.query_one("#form-error", Static).update("")
+            except Exception:
+                pass
+            self.app.push_screen(BranchSelectScreen(src, target_arg,
+                                                    default_branch, branches))
+
+
+    class BranchSelectScreen(Screen):
+        BINDINGS = [("escape", "back", "Back")]
+
+        def __init__(self, url: str, target: str | None,
+                     default_branch: str, branches: list):
+            super().__init__()
+            self.url = url
+            self.target = target
+            self.pairs = [(f"🌟 {default_branch}   (default)", default_branch)]
+            self.pairs += [(f"    {b}", b) for b in branches if b != default_branch]
+
+        def action_back(self):
+            self.app.pop_screen()
+
+        def compose(self) -> ComposeResult:
+            repo = self.url.rstrip("/").split("/")[-1].replace(".git", "")
+            yield Header(show_clock=False)
+            yield Vertical(
+                Label(f"[b]Select branch[/] · {repo}"),
+                ListView(*[ListItem(Label(txt), id=f"b{i}")
+                           for i, (txt, _) in enumerate(self.pairs)],
+                         id="branch-list"),
+                Static("[dim]enter = build this branch · esc = back[/]",
+                       id="branch-hint"),
+            )
+            yield Footer()
+
+        def on_list_view_selected(self, ev):
+            try:
+                idx = int(ev.item.id[1:])
+            except Exception:
+                return
+            _, branch = self.pairs[idx]
+            self.app.start_build(self.url, branch=branch, target=self.target)
 
 
     class BuildRunScreen(Screen):
@@ -555,6 +619,8 @@ if HAS_TEXTUAL:
         #run-log { border: round $primary; height: 1fr; }
         #run-bar { margin: 0 1; }
         DataTable { height: 1fr; }
+        #branch-list { height: 1fr; }
+        #branch-hint { margin: 0 1; color: $text-muted; }
         #art-hint { color: yellow; margin: 0 1; }
         #set-status { margin: 1; color: yellow; }
         """

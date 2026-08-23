@@ -1,4 +1,5 @@
 """Pilot tests for the Textual TUI (skipped when textual isn't installed)."""
+import asyncio
 import json
 from pathlib import Path
 
@@ -160,6 +161,61 @@ async def test_after_failure_can_reach_home(tmp_path, monkeypatch):
         assert isinstance(app.screen, tui.MessageScreen)   # fail panel
         await pilot.press("escape"); await pilot.pause()
         assert isinstance(app.screen, tui.HomeScreen)      # reachable now
+
+
+@pytest.mark.asyncio
+async def test_url_submit_shows_branch_picker_then_build(monkeypatch):
+    # Regression/feature: after entering a git URL the user must get a
+    # branch selection list (default first) before the build starts.
+    from types import SimpleNamespace
+    out_dir = tmp_dir = None
+    monkeypatch.setattr(tui.jc, "fetch_remote_git_info",
+                        lambda url: ("main", ["dev", "v2", "main"]))
+    started = {}
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        def fake_start(src, branch=None, target=None):
+            started.update(src=src, branch=branch, target=target)
+        monkeypatch.setattr(app, "start_build", fake_start)
+        await pilot.press("n"); await pilot.pause()
+        app.screen.query_one("#src").value = "https://github.com/u/repo"
+        app.screen._submit()
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            if isinstance(app.screen, tui.BranchSelectScreen):
+                break
+        assert isinstance(app.screen, tui.BranchSelectScreen)
+        lst = app.screen.query_one("#branch-list")
+        assert len(list(lst.children)) == 3          # default + dev + v2
+        # select the SECOND entry (dev) and expect build with branch='dev'
+        menu = app.screen.query_one("#branch-list")
+        menu.focus()
+        await pilot.press("down")
+        await pilot.press("enter"); await pilot.pause()
+        assert started.get("src") == "https://github.com/u/repo"
+        assert started.get("branch") == "dev"
+
+
+@pytest.mark.asyncio
+async def test_url_branch_fetch_failure_falls_back(monkeypatch):
+    calls = {}
+    def boom(url):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(tui.jc, "fetch_remote_git_info", boom)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        def fake_start(src, branch=None, target=None):
+            calls['b'] = branch
+        monkeypatch.setattr(app, "start_build", fake_start)
+        await pilot.press("n"); await pilot.pause()
+        app.screen.query_one("#src").value = "https://github.com/u/repo"
+        app.screen._submit()
+        for _ in range(30):
+            await asyncio.sleep(0.1)
+            if 'b' in calls: break
+        assert calls.get('b') is None       # default branch used
 
 
 @pytest.mark.asyncio
