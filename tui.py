@@ -1103,24 +1103,24 @@ if HAS_TEXTUAL:
         Button.-primary:hover { background: #27507f; }
         #menu { height: auto; max-height: 40%; }
         #recent { height: 1fr; }
-        #recent-title, #home-menu-title { margin-left: 1; }
+        #recent-title, #home-menu-title { margin-left: 0; }
         #home-head { padding: 0 1; background: #10233a; }
         Vertical { padding: 0 1; }
         Horizontal { height: auto; }
-        Label { margin: 0 1; }
+        Label { margin: 0; }
         Input, Select { width: 100%; }
         #run-log { border: round #2b527a; height: 1fr; display: none; }
         BuildRunScreen.showlog #run-log { display: block; }
         BuildRunScreen.showlog #run-steps,
         BuildRunScreen.showlog #run-lastline { display: none; }
-        #run-steps { margin: 0 1; color: $text; }
-        #run-lastline { margin: 0 1; height: auto; max-height: 2; }
-        #run-bar { margin: 0 1; }
+        #run-steps { margin: 0; color: $text; }
+        #run-lastline { height: auto; max-height: 2; }
+        #run-bar { margin: 0; }
         DataTable { height: 1fr; }
         #branch-list { height: 1fr; }
-        #branch-hint { margin: 0 1; color: $text-muted; }
-        #art-hint { color: yellow; margin: 0 1; }
-        #set-status { margin: 1; color: yellow; }
+        #branch-hint { margin: 0; color: $text-muted; }
+        #art-hint { color: yellow; }
+        #set-status { color: yellow; }
         """
 
         def __init__(self):

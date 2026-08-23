@@ -563,7 +563,6 @@ async def test_failure_screen_copy_to_clipboard(tmp_path, monkeypatch):
             assert rp, "report returned None"
         except Exception:
             _tb.print_exc(); raise
-        print("PROBE rp:", rp, "exists:", Path(rp).exists())
         summ["failure_report"] = rp
         (out_dir / "summary.json").write_text(json.dumps(summ))
         return {"exit_code": 1, "status": "build_failed",
