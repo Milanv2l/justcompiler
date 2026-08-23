@@ -13,11 +13,12 @@ from pathlib import Path
 import core
 from core import UI, t
 import docker_manager
+import hostdeps
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
-UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "plugins.json", "checksums.txt"]
+UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
 
 def verify_checksum(file_path: str, expected_hash: str) -> bool:
     sha256 = hashlib.sha256()
@@ -345,6 +346,22 @@ def _summarize(status: str, error_class: str, target: str, java_ver,
                                          for d in p.get("runtime_deps", []) if d.get("pkg")}),
     }
 
+def _manifest_runtime_dep_tuples(build_folder: Path) -> set:
+    """7-tuples of runtime_deps recorded in a build's manifest."""
+    try:
+        manifest = json.loads((build_folder / "build_manifest.json").read_text())
+    except Exception:
+        return set()
+    deps = set()
+    for proj in manifest.get("projects", []):
+        for dep in proj.get("runtime_deps", []):
+            deps.add((
+                dep["pkg"], dep.get("apt", ""), dep.get("pacman", ""),
+                dep.get("dnf", ""), dep.get("winget", ""),
+                dep.get("choco", ""), dep.get("scoop", ""),
+            ))
+    return deps
+
 def _error_class_from_log(build_folder: Path) -> str:
     try:
         log = (build_folder / "build_log.txt").read_text(errors="replace").splitlines()[-60:]
@@ -499,6 +516,33 @@ def execute_build(raw_build: str, branch: str | None = None,
     summary = _summarize(status, "" if status == "success" else _error_class_from_log(build_folder),
                          target_filter, java_ver, elapsed, build_folder,
                          manifest, commit=commit)
+
+    # Headless host-dep install (opt-in): only when deps are recorded AND
+    # the user opted in via config. Always leaves a rollback receipt.
+    cfg_pre = load_config()
+    dep_names = summary.get("possible_runtime_deps", [])
+    if cfg_pre.get("auto_install_deps") and dep_names:
+        try:
+            tuples = _manifest_runtime_dep_tuples(build_folder)
+            pm = hostdeps.detect_pm()
+            if tuples and pm:
+                pkgs = []
+                for dep in tuples:
+                    field = {"apt": dep[1], "pacman": dep[2], "dnf": dep[3],
+                             "zypper": dep[3], "winget": dep[4], "choco": dep[5],
+                             "scoop": dep[6]}.get(pm, "")
+                    if field:
+                        pkgs.extend(w for w in field.split() if w not in pkgs)
+                missing = hostdeps.filter_installed(pkgs, pm)
+                if missing:
+                    UI.info(f"Installing host dependencies: {', '.join(missing)}")
+                    receipt = hostdeps.install(missing, pm,
+                                               on_line=lambda l: print(f"  {l}"))
+                    summary["installed_receipt"] = receipt.get("path", "")
+                    summary["installed_packages"] = receipt.get("newly_installed", [])
+        except Exception as e:
+            UI.warn(f"Host dependency install skipped: {e}")
+
     try:
         (build_folder / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     except Exception:
@@ -951,58 +995,23 @@ def handle_settings(selected_lang):
             return selected_lang
 
 def _detect_package_manager():
-    """Return (pkg_manager_family, None) or (None, None)."""
-    if platform.system() == "Windows":
-        for pm in ("winget", "choco", "scoop"):
-            if shutil.which(pm):
-                return pm, None
-        return None, None
-    for pm in ("apt", "pacman", "dnf", "zypper"):
-        if shutil.which(pm):
-            return pm, None
-    return None, None
+    """Delegated to hostdeps.detect_pm(); keeps the legacy tuple contract."""
+    pm = hostdeps.detect_pm()
+    return (pm, None) if pm else (None, None)
 
 def _filter_installed(pkgs: list, pm_family: str) -> list:
-    """Return only the packages that are NOT installed yet."""
-    if platform.system() == "Windows" or not pkgs:
-        return pkgs
-    checker = {"apt": ["dpkg", "-s"], "pacman": ["pacman", "-Q"],
-               "dnf": ["rpm", "-q"], "zypper": ["rpm", "-q"]}.get(pm_family)
-    if not checker:
-        return pkgs
-    missing = []
-    for p in pkgs:
-        try:
-            if subprocess.run(checker + [p], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL).returncode != 0:
-                missing.append(p)
-        except Exception:
-            missing.append(p)
-    return missing
+    """Delegated to hostdeps.filter_installed()."""
+    return hostdeps.filter_installed(pkgs, pm_family)
 
 def _build_install_cmds(deps: set, pm_family: str) -> list:
-    """Build install command(s) for all deps under this package manager.
-    Returns a list of argv lists (winget gets one command per package)."""
+    """Delegated to hostdeps: dep-tuples -> flat pkgs -> install argv(s)."""
     pkgs = []
     for pkg, apt, pacman, dnf, winget, choco, scoop in sorted(deps):
         field = {"apt": apt, "pacman": pacman, "dnf": dnf, "zypper": dnf,
                  "winget": winget, "choco": choco, "scoop": scoop}.get(pm_family, "")
         if field:
             pkgs.extend(w for w in field.split() if w not in pkgs)
-    if not pkgs:
-        return []
-    if pm_family == "winget":
-        return [["winget", "install", "--id", p, "-e",
-                 "--accept-package-agreements", "--accept-source-agreements"] for p in pkgs]
-    base_cmd = {
-        "apt": ["apt", "install", "-y"],
-        "pacman": ["pacman", "-S", "--noconfirm"],
-        "dnf": ["dnf", "install", "-y"],
-        "zypper": ["zypper", "install", "-y"],
-        "choco": ["choco", "install", "-y"],
-        "scoop": ["scoop", "install"],
-    }[pm_family]
-    return [(["sudo"] if platform.system() != "Windows" else []) + base_cmd + pkgs]
+    return hostdeps.build_install_cmds_from_pkgs(pkgs, pm_family)
 
 def _norm_token(s: str) -> str:
     return re.sub(r"[^a-z]", "", s.lower())
@@ -1114,28 +1123,40 @@ def _show_runtime_hints(build_folder: Path, output_text: str = ""):
         UI.warn(title)
         for l in lines: print(f"  {l}")
     if pm_family:
-        ans = input(f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}").strip().lower()
+        gate = load_config().get("host_dep_install", "ask")
+        if gate == "never":
+            UI.warn("Host dependency install is disabled (config: host_dep_install=never).")
+            return
+        ans = "y" if gate == "always" else input(
+            f"\n{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Install missing dependencies automatically? (y/N): {UI.RESET}"
+        ).strip().lower()
         if ans in ('y', 'yes'):
             dep_set = set(matched) if matched else deps
-            all_cmds = _build_install_cmds(dep_set, pm_family)
-            if not all_cmds:
-                UI.warn("No installable packages found for this platform.")
+            pkgs = []
+            for dep in dep_set:
+                field = {"apt": dep[1], "pacman": dep[2], "dnf": dep[3],
+                         "zypper": dep[3], "winget": dep[4], "choco": dep[5],
+                         "scoop": dep[6]}.get(pm_family, "")
+                if field:
+                    pkgs.extend(w for w in field.split() if w not in pkgs)
+            missing = hostdeps.filter_installed(pkgs, pm_family)
+            if not missing:
+                UI.success(f"{', '.join(pkgs)} already installed, nothing to do")
                 return
-            for c in all_cmds:
-                off = 1 if c[0] == "sudo" else 0
-                tool, args = c[off], c[off + 1:]
-                pkg_args = [a for a in args if not a.startswith("-")]
-                if tool in ("apt", "pacman", "dnf", "zypper") and pkg_args:
-                    missing = _filter_installed(pkg_args, tool)
-                    if not missing:
-                        UI.success(f"{', '.join(pkg_args)} already installed, skipping")
-                        continue
-                    c = list(c[:off + 1]) + [a for a in args if a.startswith("-")] + missing
-                UI.info(f"Running: {' '.join(c)}")
-                try:
-                    subprocess.run(c)
-                except Exception as e:
-                    UI.error(f"Install failed: {e}")
+            receipt = hostdeps.install(missing, pm_family,
+                                       on_line=lambda l: print(f"  {l}"))
+            if receipt.get("ok"):
+                UI.success(f"Installed {len(receipt['newly_installed'])} package(s). "
+                           f"Receipt: {receipt.get('path')}")
+            else:
+                UI.error("Install failed — see output above.")
+                return
+            # offer immediate rollback so users can verify and revert safely
+            roll = input(f"{UI.CYAN}{UI.BOLD}➔ {UI.RESET}Undo this install now? (y/N): {UI.RESET}"
+                         ).strip().lower()
+            if roll in ('y', 'yes'):
+                ok = hostdeps.undo(receipt, on_line=lambda l: print(f"  {l}"))
+                UI.success("Rolled back.") if ok else UI.error("Rollback failed — see output above.")
 
 
 import zipfile

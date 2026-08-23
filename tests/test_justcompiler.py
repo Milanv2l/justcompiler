@@ -174,7 +174,8 @@ def test_build_install_cmd_apt_combined():
     cmds = jc._build_install_cmds(DEPS, "apt")
     assert len(cmds) == 1
     cmd = cmds[0]
-    assert cmd[0] == "sudo" and cmd[1] == "apt" and "-y" in cmd
+    # hostdeps uses apt-get (script-friendly) instead of the apt alias
+    assert cmd[0] == "sudo" and cmd[1] == "apt-get" and "-y" in cmd
     pkgs = [a for a in cmd if not a.startswith("-")][2:]
     assert "libgtk-4-dev" in pkgs and "nodejs" in pkgs
     # dedup: nodejs appears in only one dep but must not be repeated

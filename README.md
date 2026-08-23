@@ -107,9 +107,10 @@ available:
 
 - **Home** — status header, menu, and your 10 most recent builds (with status)
 - **Build form** — path or git URL, branch picker for URLs, target selector: `auto`, **All detected targets**, or any specific plugin
-- **Live build** — streaming log, docker-build progress bar, elapsed timer + engine status every second, `c` to cancel the sandbox
+- **Live build** — compact progress view: phase, ⏱ elapsed timer + engine status, step checklist (Prepare ▶ Sandbox ▶ Compile ▶ Save), latest-activity line; `l` toggles the full raw output on the same screen; `c` cancels the sandbox
 - **Artifacts** — table of harvested outputs; `r` runs one (output streams in-app), `o` opens the folder
-- **Settings** — language, updates, tests, auto-install-deps, sandbox profile, force update
+- **Host deps** — `i` installs the matched host dependencies (confirm modal shows the exact command; output streams); `u` lists install receipts and rolls one back — only packages that were newly installed by that receipt are removed (dnf uses exact `history undo`)
+- **Settings** — language, updates, tests, auto-install-deps, host-dep-install gate (`ask`/`always`/`never`), sandbox profile, force update
 - **Help** — press `?` (or F1) anywhere
 
 Everything is keyboard-first (`n` new · `s` settings · `r` refresh/run ·
@@ -131,6 +132,8 @@ falls back to the classic ANSI panels and prints:
                                //         missing tools on demand (fast first build)
   "theme": "default",          // "default" | "minimal" (no panel borders)
   "run_tests": false,          // pass --test to the engine where supported
+  "auto_install_deps": false,  // headless: install recorded runtime deps after build
+  "host_dep_install": "ask",   // TUI 'i' action: "ask" | "always" | "never"
   "keep_builds": 0,            // retention: keep only newest N EXECUTABLE folders
   "notify": true,              // desktop notification when a build finishes
 

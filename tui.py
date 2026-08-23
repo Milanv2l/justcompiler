@@ -11,6 +11,7 @@ import importlib.util
 import json
 import sys
 import threading
+import re
 import time
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import justcompiler as jc
 import core
 from core import UI, t
 import docker_manager
+import hostdeps as hostdeps_mod
 
 
 def should_use_textual() -> bool:
@@ -328,13 +330,23 @@ if HAS_TEXTUAL:
     class BuildRunScreen(Screen):
         BINDINGS = [
             ("c", "cancel_build", "Cancel"),
+            ("l", "toggle_log", "Raw output"),
             ("escape", "done", "Done"),
+        ]
+        # ordered build phases; matched against engine status/output text
+        STEPS = [
+            ("Prepare", r"clon|scan|detect|branch|fetch"),
+            ("Sandbox", r"sandbox|docker cache|engine layer|syncing"),
+            ("Compile", r"compil|build|strategy|install "),
+            ("Save", r"safeguard|saved|harvest|entry points|artifact"),
         ]
 
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
             self.finished = False
             self._t0 = time.time()
+            self._step_idx = -1
+            self._raw = []
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -342,6 +354,8 @@ if HAS_TEXTUAL:
                 Label("[b]Starting…[/]", id="run-phase"),
                 Label("", id="run-timer"),
                 ProgressBar(total=100.0, show_eta=False, id="run-bar"),
+                Static("", id="run-steps"),
+                Static("", id="run-lastline"),
                 RichLog(highlight=False, markup=False, wrap=True, id="run-log"),
                 Horizontal(Button("Cancel build", variant="error", id="cancel")),
             )
@@ -350,8 +364,32 @@ if HAS_TEXTUAL:
         def on_mount(self):
             log = self.query_one("#run-log", RichLog)
             log.write("Waiting for builder output…")
+            self.query_one("#run-steps").update(self._render_steps())
             # live elapsed + engine status ticker: the screen never looks dead
             self.set_interval(1.0, self._tick)
+
+        def _render_steps(self) -> str:
+            out = []
+            for i, (name, _) in enumerate(self.STEPS):
+                if i < self._step_idx:
+                    out.append(f"[green]✔ {name}[/]")
+                elif i == self._step_idx:
+                    out.append(f"[b yellow]▶ {name}[/]")
+                else:
+                    out.append(f"[dim]○ {name}[/]")
+            return "\n".join(out)
+
+        def _advance_steps(self, text: str):
+            t = (text or "").lower()
+            for i, (_, pat) in enumerate(self.STEPS):
+                if re.search(pat, t):
+                    if i > self._step_idx:
+                        self._step_idx = i
+                    break
+            try:
+                self.query_one("#run-steps").update(self._render_steps())
+            except Exception:
+                pass
 
         def _tick(self):
             if getattr(self, "finished", False):
@@ -361,6 +399,8 @@ if HAS_TEXTUAL:
                 status = getattr(jc, "CURRENT_STATUS", "") or ""
             except Exception:
                 status = ""
+            if status:
+                self._advance_steps(status)
             secs = int(time.time() - self._t0)
             mm, ss = divmod(secs, 60)
             txt = f"⏱ {mm:02d}:{ss:02d}  ·  {status}" if status else f"⏱ {mm:02d}:{ss:02d}"
@@ -384,10 +424,30 @@ if HAS_TEXTUAL:
             self.set_phase(text)
 
         def append(self, line: str):
+            # RichLog drops lines while display:none; keep our own buffer and
+            # replay it when the user opens the raw-output view.
+            self._raw.append(line)
+            if self.has_class("showlog"):
+                try:
+                    self.query_one("#run-log", RichLog).write(line)
+                except Exception:
+                    pass
             try:
-                self.query_one("#run-log", RichLog).write(line)
+                ll = self.query_one("#run-lastline")
+                if line.strip():
+                    ll.update(f"[dim]… {line.strip()[:96]}[/]")
+                self._advance_steps(line)
             except Exception:
                 pass
+
+        def action_toggle_log(self):
+            opening = not self.has_class("showlog")
+            self.toggle_class("showlog")
+            if opening:
+                log = self.query_one("#run-log", RichLog)
+                log.clear()
+                for l in self._raw[-2000:]:
+                    log.write(l)
 
         def finish(self, result: dict):
             self.finished = True
@@ -428,6 +488,8 @@ if HAS_TEXTUAL:
         BINDINGS = [
             ("r", "run_artifact", "Run"),
             ("o", "open_folder", "Open folder"),
+            ("i", "install_deps", "Install deps"),
+            ("u", "undo_install", "Undo install"),
             ("escape", "home", "Home"),
         ]
 
@@ -514,6 +576,133 @@ if HAS_TEXTUAL:
             except Exception:
                 pass
 
+        # ---- host dependency install / undo (v2.4.0) -----------------------
+        def _dep_tuples(self) -> set:
+            return jc._manifest_runtime_dep_tuples(self.artifacts_dir)
+
+        def _gate(self) -> str:
+            try:
+                return jc.load_config().get("host_dep_install", "ask")
+            except Exception:
+                return "ask"
+
+        def action_install_deps(self):
+            if self._gate() == "never":
+                self.app.push_screen(MessageScreen(
+                    "Host dependency install is disabled "
+                    "(config: host_dep_install=never).", title="Disabled"))
+                return
+            tuples = self._dep_tuples()
+            if not tuples:
+                self.app.push_screen(MessageScreen(
+                    "No runtime dependencies were recorded for this build.",
+                    title="Nothing to install"))
+                return
+            pm = hostdeps_mod.detect_pm()
+            if not pm:
+                self.app.push_screen(MessageScreen(
+                    "No supported package manager found on this host.",
+                    title="Cannot install"))
+                return
+            pkgs = []
+            for dep in tuples:
+                field = {"apt": dep[1], "pacman": dep[2], "dnf": dep[3],
+                         "zypper": dep[3], "winget": dep[4], "choco": dep[5],
+                         "scoop": dep[6]}.get(pm, "")
+                if field:
+                    pkgs.extend(w for w in field.split() if w not in pkgs)
+            missing = hostdeps_mod.filter_installed(pkgs, pm)
+            if not missing:
+                self.app.push_screen(MessageScreen(
+                    f"Everything already installed:\n{', '.join(sorted(set(pkgs)))}",
+                    title="Nothing to install"))
+                return
+            cmds = hostdeps_mod.build_install_cmds_from_pkgs(missing, pm)
+            preview = "\n".join(" ".join(c) for c in cmds)
+            confirm_text = (f"Package manager: {pm}\n"
+                            f"Packages: {', '.join(missing)}\n\n"
+                            f"$ {preview}")
+            self.app.push_screen(ConfirmScreen(
+                title="Install host dependencies",
+                text=confirm_text,
+                yes_label="Install",
+                on_yes=lambda: self._stream_hostdeps_job(
+                    lambda runner=None, on_line=None:
+                        hostdeps_mod.install(missing, pm,
+                                             runner=runner, on_line=on_line),
+                    done_msg="Install finished.")))
+
+        def action_undo_install(self):
+            receipts = hostdeps_mod.load_receipts(6)
+            if not receipts:
+                self.app.push_screen(MessageScreen(
+                    "No install receipts found yet.\nUse 'i' after a build to "
+                    "install host deps; every install is recorded here.",
+                    title="Undo installs"))
+                return
+            self.app.push_screen(ReceiptListScreen(
+                receipts, on_pick=self.undo_receipt_flow))
+
+        def _stream_hostdeps_job(self, job_fn, done_msg: str):
+            screen = MessageScreen("$ running…", title="Host packages",
+                                   markup=False)
+            self.app.push_screen(screen)
+
+            def job():
+                receipt_box = {}
+
+                def sink(line: str):
+                    screen.app.call_from_thread(
+                        lambda l=line: screen.query_one("#msg-body", RichLog).write(l))
+
+                def run_with_capture(argv, **kw):
+                    import subprocess as sp
+                    proc = sp.Popen(argv, stdout=sp.PIPE, stderr=sp.STDOUT,
+                                    text=True, bufsize=1, errors="replace")
+                    for line in proc.stdout:
+                        sink(line.rstrip("\n"))
+                    proc.wait()
+                    class R:
+                        returncode = proc.returncode
+                        stdout = ""
+                    return R()
+
+                try:
+                    res = job_fn(runner=run_with_capture, on_line=sink)
+                    if isinstance(res, dict) and "newly_installed" in res:
+                        receipt_box["r"] = res
+                        tail = (f"\n[done] newly installed: "
+                                f"{len(res.get('newly_installed', []))}")
+                        if res.get("path"):
+                            tail += f"\nreceipt: {res['path']}"
+                        sink(tail)
+                    else:
+                        sink(f"\n[done] {done_msg}")
+                except Exception as e:
+                    sink(f"\n[error] {e}")
+
+            threading.Thread(target=job, daemon=True).start()
+
+        def undo_receipt_flow(self, receipt: dict):
+            argv = hostdeps_mod.undo_argv(receipt)
+            preview = (" ".join(argv) if isinstance(argv, list)
+                       and argv and not isinstance(argv[0], list)
+                       else "\n".join(" ".join(c) for c in argv))
+            confirm_text = (f"This will REMOVE the packages installed by this "
+                            f"receipt:\n{', '.join(receipt.get('newly_installed') or receipt.get('requested') or [])}\n\n"
+                            f"$ {preview}\n\n"
+                            "Only packages that were newly installed by this "
+                            "receipt are removed.")
+            self.app.push_screen(ConfirmScreen(
+                title="Undo host install",
+                text=confirm_text,
+                yes_label="Undo",
+                on_yes=lambda: self._stream_hostdeps_job(
+                    lambda runner=None, on_line=None:
+                        {"ok": hostdeps_mod.undo(receipt, runner=runner,
+                                                 on_line=on_line)},
+                    done_msg="Rollback finished.")))
+
         def action_home(self):
             app = self.app
             # safety net: pop everything above Home (works from any depth)
@@ -538,6 +727,13 @@ if HAS_TEXTUAL:
                 Horizontal(Label("Check updates"), Switch(value=bool(cfg.get("check_updates", True)), id="sw-updates")),
                 Horizontal(Label("Run tests"), Switch(value=bool(cfg.get("run_tests", False)), id="sw-tests")),
                 Horizontal(Label("Auto-install host deps (headless)"), Switch(value=bool(cfg.get("auto_install_deps", False)), id="sw-deps")),
+                Horizontal(Label("Host dep install (TUI 'i')"),
+                           Select([("ask (confirm first)", "ask"),
+                                   ("always (skip confirm)", "always"),
+                                   ("never", "never")],
+                                  value=cfg.get("host_dep_install", "ask")
+                                  if cfg.get("host_dep_install", "ask") in ("ask", "always", "never")
+                                  else "ask", id="sel-hdi")),
                 Horizontal(Label("Language"), Select([("English", "en"), ("Nederlands", "nl")],
                           value=cfg.get("lang", "en") if cfg.get("lang", "en") in ("en", "nl") else "en",
                           id="sel-lang")),
@@ -565,6 +761,8 @@ if HAS_TEXTUAL:
                 core.set_lang(code)
             elif ev.select.id == "sel-profile":
                 self._save(profile=ev.value)
+            elif ev.select.id == "sel-hdi":
+                self._save(host_dep_install=ev.value)
 
         def on_button_pressed(self, ev):
             if ev.button.id == "force-update":
@@ -591,6 +789,98 @@ if HAS_TEXTUAL:
                     lambda: self.query_one("#set-status", Static)
                     .update(f"{msg}  {detail}"))
             threading.Thread(target=job, daemon=True).start()
+
+
+    class ConfirmScreen(Screen):
+        """Yes/no confirmation with an exact command preview (plain text)."""
+        BINDINGS = [("y", "yes", "Yes"), ("enter", "yes", "Yes"),
+                    ("n", "no", "No"), ("escape", "no", "No")]
+
+        def __init__(self, title: str, text: str, yes_label: str = "Yes",
+                     on_yes=None):
+            super().__init__()
+            self.title_ = title
+            self.text_ = text
+            self.yes_label = yes_label
+            self.on_yes = on_yes
+
+        def compose(self) -> ComposeResult:
+            yield Header(show_clock=False)
+            yield Vertical(
+                Label(f"[b]{self.title_}[/]"),
+                RichLog(markup=False, wrap=True, id="confirm-body"),
+                Horizontal(
+                    Button(self.yes_label, variant="warning", id="cf-yes"),
+                    Button("Cancel", id="cf-no"),
+                ),
+            )
+            yield Footer()
+
+        def on_mount(self):
+            self.query_one("#confirm-body", RichLog).write(self.text_)
+            try:
+                self.query_one("#cf-yes", Button).focus()
+            except Exception:
+                pass
+
+        def _yes(self):
+            cb = self.on_yes
+            self.app.pop_screen()
+            if cb:
+                cb()
+
+        def on_button_pressed(self, ev):
+            if ev.button.id == "cf-yes":
+                self._yes()
+            else:
+                self.app.pop_screen()
+
+        def action_yes(self):
+            self._yes()
+
+        def action_no(self):
+            self.app.pop_screen()
+
+
+    class ReceiptListScreen(Screen):
+        BINDINGS = [("escape", "back", "Back")]
+
+        def __init__(self, receipts: list, on_pick=None):
+            super().__init__()
+            self.receipts = receipts
+            self.on_pick = on_pick
+
+        def compose(self) -> ComposeResult:
+            yield Header(show_clock=False)
+            yield Vertical(
+                Label("[b]Undo installs[/] — newest first"),
+                DataTable(id="receipt-table"),
+                Static("[dim]enter = select for undo · esc back[/]", id="r-hint"),
+            )
+            yield Footer()
+
+        def on_mount(self):
+            tbl = self.query_one("#receipt-table", DataTable)
+            tbl.cursor_type = "row"
+            tbl.add_columns("When (UTC)", "PM", "Newly installed", "OK")
+            tbl.zebra_stripes = True
+            for r in self.receipts:
+                when = r.get("when", "?").replace("T", " ")
+                n = len(r.get("newly_installed") or r.get("requested") or [])
+                tbl.add_row(when, r.get("pm", "?"), f"{n} package(s)",
+                            "✔" if r.get("ok") else "✖", key=r.get("path", ""))
+
+        def on_data_table_row_selected(self, ev):
+            path = str(ev.row_key.value or "")
+            receipt = next((r for r in self.receipts if r.get("path") == path), None)
+            if not receipt:
+                return
+            self.app.pop_screen()     # close the list first
+            if self.on_pick:
+                self.on_pick(receipt)
+
+        def action_back(self):
+            self.app.pop_screen()
 
 
     class MessageScreen(Screen):
@@ -631,7 +921,12 @@ if HAS_TEXTUAL:
         Horizontal { height: auto; }
         Label { margin: 0 1; }
         Input, Select { width: 100%; }
-        #run-log { border: round $primary; height: 1fr; }
+        #run-log { border: round $primary; height: 1fr; display: none; }
+        BuildRunScreen.showlog #run-log { display: block; }
+        BuildRunScreen.showlog #run-steps,
+        BuildRunScreen.showlog #run-lastline { display: none; }
+        #run-steps { margin: 0 1; color: $text; }
+        #run-lastline { margin: 0 1; height: auto; max-height: 2; }
         #run-bar { margin: 0 1; }
         DataTable { height: 1fr; }
         #branch-list { height: 1fr; }
@@ -700,6 +995,12 @@ if HAS_TEXTUAL:
                 finally:
                     UI.unbind()
                     docker_manager.ACTIVE_RUN_NAME["name"] = None
+                # ensure the run screen finished mounting before we report done,
+                # so log lines written during the build are never lost
+                for _ in range(100):
+                    if getattr(run_screen, "is_mounted", False):
+                        break
+                    time.sleep(0.02)
                 self.call_from_thread(self._build_done, result)
 
             threading.Thread(target=job, daemon=True).start()

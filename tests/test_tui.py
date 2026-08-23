@@ -248,6 +248,140 @@ async def test_recent_builds_refresh_on_return_home(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_artifacts_install_and_undo_flow(tmp_path, monkeypatch):
+    import hostdeps as hd
+    from textual.widgets import DataTable, RichLog, Button
+
+    d = tmp_path / "EXECUTABLE" / "p_1"
+    d.mkdir(parents=True)
+    (d / "build_manifest.json").write_text(json.dumps(
+        {"projects": [{"name": "p", "items": [],
+                       "runtime_deps": [
+                           {"pkg": "GTK4", "apt": "libgtk-4-dev", "pacman": "gtk4",
+                            "dnf": "gtk4-devel", "winget": "", "choco": "", "scoop": ""}]}]}))
+    monkeypatch.chdir(tmp_path)
+
+    # gate: ask (default) -> confirm modal appears
+    monkeypatch.setattr(jc, "load_config", lambda: {"host_dep_install": "ask"})
+    # detection + missing filter
+    monkeypatch.setattr(hd, "detect_pm", lambda: "dnf")
+    monkeypatch.setattr(hd, "filter_installed",
+                        lambda pkgs, pm: ["gtk4-devel"])
+
+    rd = tmp_path / "receipts"
+    monkeypatch.setattr(hd, "RECEIPT_DIR", rd)
+    installed = {}
+    def fake_install(pkgs, pm, *, runner=None, on_line=None):
+        if on_line:
+            on_line("Installing gtk4-devel")
+        rec = {"when": "now", "pm": pm, "requested": list(pkgs),
+               "newly_installed": list(pkgs), "transaction_id": 7,
+               "command": f"sudo dnf install -y {' '.join(pkgs)}",
+               "ok": True, "path": ""}
+        r2 = hd._save_receipt(rec)
+        installed.update(rec=r2)
+        return r2
+    monkeypatch.setattr(hd, "install", fake_install)
+    undo_calls = []
+    monkeypatch.setattr(hd, "undo",
+                        lambda rec, runner=None, on_line=None:
+                        (undo_calls.append(rec), True)[1])
+
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.pause()
+        app.push_screen(tui.ArtifactsScreen(d, {
+            "status": "success", "artifacts_dir": str(d),
+            "summary": {"possible_runtime_deps": ["GTK4"]}}))
+        await pilot.pause()
+
+        # --- install flow
+        await pilot.press("i"); await pilot.pause()
+        assert isinstance(app.screen, tui.ConfirmScreen), type(app.screen).__name__
+        await pilot.press("y"); await pilot.pause()
+        for _ in range(30):
+            await asyncio.sleep(0.1); await pilot.pause()
+            if installed.get("rec"): break
+        assert installed.get("rec") and installed["rec"]["ok"]
+        await pilot.press("escape"); await pilot.pause()   # close stream modal
+        assert isinstance(app.screen, tui.ArtifactsScreen)
+
+        # --- undo flow
+        await pilot.press("u"); await pilot.pause()
+        assert isinstance(app.screen, tui.ReceiptListScreen)
+        tbl = app.screen.query_one("#receipt-table", DataTable)
+        assert tbl.row_count == 1
+        from types import SimpleNamespace as NS
+        ev = NS(row_key=NS(value=installed["rec"]["path"]))
+        app.screen.on_data_table_row_selected(ev)
+        await pilot.pause()
+        assert isinstance(app.screen, tui.ConfirmScreen)
+        await pilot.press("y"); await asyncio.sleep(0.4); await pilot.pause()
+        assert len(undo_calls) == 1 and undo_calls[0]["pm"] == "dnf"
+
+
+@pytest.mark.asyncio
+async def test_install_gate_never_blocks(monkeypatch, tmp_path):
+    from textual.widgets import RichLog
+    d = tmp_path / "EXECUTABLE" / "p_2"; d.mkdir(parents=True)
+    monkeypatch.setattr(jc, "load_config", lambda: {"host_dep_install": "never"})
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(tui.ArtifactsScreen(d, {"status": "success",
+                                                "artifacts_dir": str(d)}))
+        await pilot.pause()
+        await pilot.press("i"); await pilot.pause()
+        body = app.screen.query_one("#msg-body", RichLog)
+        txt = " ".join(str(s) for s in list(body.lines))
+        assert "disabled" in txt
+
+
+@pytest.mark.asyncio
+async def test_progress_pane_default_and_log_toggle(tmp_path, monkeypatch):
+    from textual.widgets import Label, Static
+    out_dir = tmp_path / "EXECUTABLE" / "pp_1"
+    def fake_execute(src, branch=None, target_override=None, lang="en",
+                     all_targets=False):
+        jc.UI.info("compiling thing A")
+        import time as _t; _t.sleep(0.6)          # let timer tick + steps fire
+        jc.UI.info("compiling thing B")
+        return {"exit_code": 0, "status": "success", "artifacts_dir": None,
+                "build_folder": None,
+                "summary": {"status": "success", "error_class": "",
+                            "target": "T", "artifacts": []}}
+    monkeypatch.setattr(jc, "execute_build", fake_execute)
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        app.start_build("/tmp/x")
+        for _ in range(60):
+            await asyncio.sleep(0.1)
+            rs = app.run_screen
+            if rs and getattr(rs, "finished", False):
+                break
+        await pilot.pause()
+        rs = app.run_screen
+        # default view: progress pane visible, raw log hidden
+        assert not app.screen.has_class("showlog")
+        steps_txt = str(rs.query_one("#run-steps").render())
+        assert "Prepare" in steps_txt or "Compile" in steps_txt
+        lastline = str(rs.query_one("#run-lastline").render())
+        assert len(lastline) > 0
+        # toggle reveals the full log (replayed from buffer)
+        await pilot.press("l"); await pilot.pause()
+        assert app.screen.has_class("showlog")
+        log = rs.query_one("#run-log")
+        blob = " ".join(str(s) for s in list(log.lines))
+        assert "thing B" in blob
+        # and back to progress pane
+        await pilot.press("l"); await pilot.pause()
+        assert not app.screen.has_class("showlog")
+
+
+@pytest.mark.asyncio
 async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     from textual.widgets import RichLog
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
@@ -271,8 +405,9 @@ async def test_full_build_flow_via_form(tmp_path, monkeypatch):
         ok = await _wait_for(lambda: getattr(app.run_screen, "finished", False)
                              if app.run_screen else False)
         assert ok, "build worker never finished"
-        log = app.run_screen.query_one("#run-log", RichLog)
-        assert any("simulated line" in str(s) for s in log.lines[-3:])
+        await pilot.pause(); await pilot.pause()
+        blob = " ".join(app.run_screen._raw)
+        assert "simulated line" in blob, f"missing line; got {blob[:120]!r}"
         await pilot.press("escape")          # finish -> build_finished push
         await pilot.pause()
         assert isinstance(app.screen, tui.ArtifactsScreen)
