@@ -4,3 +4,6 @@ _git_cache/
 config.json
 *.pyc
 .DS_Store
+*.pem
+*.key
+*.crt

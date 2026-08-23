@@ -608,8 +608,11 @@ if HAS_TEXTUAL:
 
             def job():
                 cmd = list(artifact.cmd)
+                # never let side-effect files (certs, configs) land in the repo
+                workdir = Path(artifact.cwd) if artifact.cwd \
+                    else Path(artifacts_dir).resolve()
                 proc = subprocess.Popen(
-                    cmd, shell=(sys.platform == "win32"), cwd=artifact.cwd,
+                    cmd, shell=(sys.platform == "win32"), cwd=str(workdir),
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, bufsize=1, errors="replace")
                 for line in proc.stdout:
