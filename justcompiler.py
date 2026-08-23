@@ -3,6 +3,7 @@ import sys
 import subprocess
 import shutil
 import platform
+import getpass
 import urllib.request
 import time
 import json
@@ -15,7 +16,7 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
@@ -396,6 +397,119 @@ def _notify(title: str, body: str):
     except Exception:
         pass
 
+REPORT_MAX_BYTES = 8 * 1024 * 1024   # safety cap for clipboard/report size
+
+def _scrub_text(text: str) -> str:
+    """Remove personal data: home paths, username, hostname, e-mails."""
+    try:
+        home = str(Path.home())
+        if home and home != "/":
+            text = text.replace(home, "~")
+    except Exception:
+        pass
+    try:
+        user = getpass.getuser()
+        if user:
+            text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(user)}(?![A-Za-z0-9])",
+                          "<user>", text)
+    except Exception:
+        pass
+    try:
+        node = platform.node()
+        if node:
+            text = re.sub(re.escape(node), "<host>", text)
+    except Exception:
+        pass
+    return re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                  "<email>", text)
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Best-effort cross-platform clipboard copy. Returns success."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+            return True
+        if sys.platform == "win32":
+            # clip.exe reads UTF-16LE without BOM fine
+            subprocess.run(["clip"], input=text.encode("utf-16-le"), check=True)
+            return True
+        for tool in ("wl-copy", "xclip", "xsel"):
+            if shutil.which(tool):
+                argv = {"wl-copy": ["wl-copy"],
+                        "xclip": ["xclip", "-selection", "clipboard"],
+                        "xsel": ["xsel", "--clipboard", "--input"]}[tool]
+                subprocess.run(argv, input=text.encode("utf-8"), check=True)
+                return True
+    except Exception:
+        pass
+    return False
+
+def _write_failure_report(build_folder: Path, summary: dict,
+                          max_bytes: int | None = None) -> str | None:
+    """Write failure_report.txt with FULL scrubbed crash logs. Returns path."""
+    try:
+        import time as _t
+        max_bytes = max_bytes or REPORT_MAX_BYTES
+        parts = []
+
+        def section(title: str, body: str):
+            body = _scrub_text(body.rstrip("\n"))
+            parts.append(f"\n===== {title} =====\n{body}\n")
+
+        env_line = f"{platform.system()} {platform.release()} · Python {platform.python_version()}"
+        try:
+            osr = Path("/etc/os-release")
+            for ln in osr.read_text().splitlines():
+                if ln.startswith("PRETTY_NAME="):
+                    env_line += " · " + ln.split("=", 1)[1].strip('"')
+                    break
+        except Exception:
+            pass
+        try:
+            dv = subprocess.run(["docker", "--version"], capture_output=True,
+                                text=True, timeout=5).stdout.strip()
+            if dv: env_line += " · " + dv
+        except Exception:
+            pass
+
+        header = (f"JustCompiler v{VERSION} crash report\n"
+                  f"date: {_t.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                  f"target: {summary.get('target','-')}  "
+                  f"error_class: {summary.get('error_class') or '-'}\n"
+                  f"status: {summary.get('status','-')}  "
+                  f"duration: {summary.get('duration_s','?')}s\n"
+                  f"environment: {env_line}\n"
+                  f"project dir: {build_folder.name}")
+        parts.append(header)
+
+        deps = summary.get("possible_runtime_deps") or []
+        if deps:
+            parts.append("possible runtime deps: " + ", ".join(deps))
+
+        cap_hit = False
+        used = sum(len(p) for p in parts)
+        for fname in ("run.log", "build.log", "build_log.txt"):
+            fp = build_folder / fname
+            if not fp.is_file():
+                continue
+            raw = fp.read_text(errors="replace")
+            remaining = max_bytes - used - len(raw)
+            if remaining < 0 and max_bytes > 0:
+                keep = max(0, remaining + len(raw))
+                raw = ("[... truncated to fit size cap ...]\n") + raw[-keep:] \
+                      if keep > 0 else "[... skipped: size cap ...]"
+                cap_hit = True
+            section(f"{fname} (full)", raw)
+            used = sum(len(p) for p in parts)
+
+        report = "\n".join(parts) + ("\n[size cap reached]\n" if cap_hit else "\n")
+        report = _scrub_text(report[:max_bytes]) if max_bytes else report
+        out = build_folder / "failure_report.txt"
+        out.write_text(report, encoding="utf-8", errors="replace")
+        return str(out)
+    except Exception:
+        return None
+
 def execute_build(raw_build: str, branch: str | None = None,
                   target_override: str | None = None, lang: str = "en",
                   all_targets: bool = False) -> dict:
@@ -520,6 +634,11 @@ def execute_build(raw_build: str, branch: str | None = None,
     summary = _summarize(status, "" if status == "success" else _error_class_from_log(build_folder),
                          target_filter, java_ver, elapsed, build_folder,
                          manifest, commit=commit)
+
+    if status == "build_failed":
+        rp = _write_failure_report(build_folder, summary)
+        if rp:
+            summary["failure_report"] = rp
 
     # Headless host-dep install (opt-in): only when deps are recorded AND
     # the user opted in via config. Always leaves a rollback receipt.

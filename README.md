@@ -93,6 +93,8 @@ Inside the sandbox the engine retries failures with targeted rescues:
 | Rust `edition2024` required (distro cargo too old) | bootstraps current rustup toolchain, retries |
 | Go `undefined: auto.*` (ungenerated embedded assets) | retries once with `-tags noassets` |
 | pnpm 10 build-script approval (would block forever) | sandbox runs with `CI=1` — all installs non-interactive |
+| Gradle plugin needs newer JVM (`requires at least JVM runtime version N`) | switches to preinstalled JDK and retries |
+| Meson can't find GTK4/libadwaita/gee | dev packages preinstalled in the sandbox image |
 | Maven repo HTTP 5xx | fails fast — upstream outage is not retried |
 | Gradle heap vs host RAM | heap clamped to ~70% of available memory before launch |
 
@@ -119,6 +121,14 @@ Everything is keyboard-first (`n` new · `s` settings · `r` refresh/run ·
 If [Textual](https://pypi.org/project/textual/) isn't installed, JustCompiler
 falls back to the classic ANSI panels and prints:
 `pip install --user textual` to enable the TUI. Headless mode is unaffected.
+
+## When a build fails
+
+Failed runs automatically write `failure_report.txt` next to the other logs:
+a single shareable file containing version info, environment details and the
+FULL build logs (home paths / username / hostname / e-mails are scrubbed).
+In the TUI the failure screen offers **c** — copy that entire report to your
+clipboard in one keystroke — plus **o** to open the folder.
 
 ## Configuration (`config.json`)
 

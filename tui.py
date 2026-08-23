@@ -991,6 +991,82 @@ if HAS_TEXTUAL:
             self.app.pop_screen()
 
 
+    class FailureScreen(Screen):
+        """Clear failure panel with one-key 'copy all crash logs'."""
+        BINDINGS = [
+            ("c", "copy_logs", "Copy logs"),
+            ("o", "open_folder", "Open folder"),
+            ("escape", "home", "Home"),
+            ("h", "home", "Home"),
+        ]
+
+        def __init__(self, result: dict):
+            super().__init__()
+            self.result = result
+            summ = result.get("summary", {})
+            self.summary = summ
+            self.report_path = summ.get("failure_report") or \
+                               str(Path(result.get("artifacts_dir") or "") / "failure_report.txt")
+
+        def compose(self) -> ComposeResult:
+            status = self.result.get("status", "build_failed")
+            errc = self.summary.get("error_class") or "-"
+            yield Header(show_clock=False)
+            yield Vertical(
+                Label(f"[b red]✖ Build failed[/]   [dim]error_class: {errc}[/]",
+                      id="fail-head"),
+                Static("All crash logs are collected in one report.\n"
+                       f"Report file: {self.report_path}\n\n"
+                       "[b]Press c to copy the full report to your clipboard[/] "
+                       "— paste it wherever you need help.",
+                       id="fail-info"),
+                Horizontal(
+                    Button("📋 Copy all logs", variant="primary", id="fs-copy"),
+                    Button("📂 Open folder", id="fs-open"),
+                    Button("🏠 Home", id="fs-home"),
+                    id="fail-btns"),
+                Static("", id="fail-status"),
+            )
+            yield Footer()
+
+        def _read_report(self) -> str:
+            try:
+                return Path(self.report_path).read_text(errors="replace")
+            except Exception:
+                return f"(report file missing: {self.report_path})"
+
+        def action_copy_logs(self):
+            text = self._read_report()
+            ok = jc._copy_to_clipboard(text)
+            st = self.query_one("#fail-status", Static)
+            if ok:
+                st.update(f"[green]✔ Copied full crash report "
+                          f"({len(text)} chars) to clipboard.[/]")
+            else:
+                st.update("[yellow]Clipboard unavailable on this system — "
+                          f"the report file is ready at:[/] {self.report_path}")
+
+        def action_open_folder(self):
+            import subprocess as sp
+            d = self.result.get("artifacts_dir")
+            opener = ("explorer" if sys.platform == "win32"
+                      else "open" if sys.platform == "darwin" else "xdg-open")
+            if d and Path(d).exists():
+                try:
+                    sp.Popen([opener, str(Path(d).resolve())],
+                             stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+                except Exception:
+                    pass
+
+        def action_home(self):
+            app = self.app
+            while type(app.screen).__name__ != "HomeScreen" and len(app.screen_stack) > 1:
+                try:
+                    app.pop_screen()
+                except Exception:
+                    break
+
+
     class MessageScreen(Screen):
         BINDINGS = [("escape", "close", "Close"), ("enter", "close", "Close")]
 
@@ -1020,16 +1096,20 @@ if HAS_TEXTUAL:
             ("f1", "help", "Help"),
         ]
         CSS = """
-        Screen { background: $surface; }
+        /* darker navy palette (v2.6.0) — tune these hexes to taste */
+        Screen { background: #0d1117; }
+        Header { background: #0b1622; }
+        Button.-primary { background: #1e3a5c; }
+        Button.-primary:hover { background: #27507f; }
         #menu { height: auto; max-height: 40%; }
         #recent { height: 1fr; }
         #recent-title, #home-menu-title { margin-left: 1; }
-        #home-head { padding: 0 1; background: $boost; }
+        #home-head { padding: 0 1; background: #10233a; }
         Vertical { padding: 0 1; }
         Horizontal { height: auto; }
         Label { margin: 0 1; }
         Input, Select { width: 100%; }
-        #run-log { border: round $primary; height: 1fr; display: none; }
+        #run-log { border: round #2b527a; height: 1fr; display: none; }
         BuildRunScreen.showlog #run-log { display: block; }
         BuildRunScreen.showlog #run-steps,
         BuildRunScreen.showlog #run-lastline { display: none; }
@@ -1141,12 +1221,17 @@ if HAS_TEXTUAL:
             except Exception:
                 pass
             artifacts_dir = result.get("artifacts_dir")
+            if result.get("status") == "build_failed":
+                # failed builds always get the dedicated help/copy screen,
+                # even when partial artifacts exist
+                self.push_screen(FailureScreen(result))
+                return
             if artifacts_dir and Path(artifacts_dir).exists():
                 self.push_screen(ArtifactsScreen(Path(artifacts_dir), result))
             else:
                 err = result.get("summary", {}).get("error_class", "")
-                msg = f"Build failed ({result['status']}).\nerror_class: {err}\n\nSee logs in the build folder."
-                self.push_screen(MessageScreen(msg, title="Build failed", markup=False))
+                msg = f"Build finished ({result['status']}).\nerror_class: {err}\n\nSee logs in the build folder."
+                self.push_screen(FailureScreen(result))
 
         # ---- artifact run -----------------------------------------------------
         def run_artifact_in_modal(self, artifact, artifacts_dir: Path):

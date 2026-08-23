@@ -497,6 +497,12 @@ class Engine:
             "ncurses.h": "libncurses-dev",
             "readline/readline.h": "libreadline-dev",
             "zstd.h": "libzstd-dev",
+            # GTK4 / libadwaita (GNOME apps built with Meson)
+            "gtk4": "libgtk-4-dev",
+            "libadwaita-1": "libadwaita-1-dev",
+            "gee-0.8": "libgee-0.8-dev",
+            "adwaita": "libadwaita-1-dev",
+            "blueprint-compiler": "blueprint-compiler",
         }
 
         for err in errors:
