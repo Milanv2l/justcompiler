@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import shutil
+import threading
 import platform
 import json
 import time
@@ -359,10 +360,46 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         elapsed = time.time() - t0
         try:
             artifacts_path.mkdir(exist_ok=True)
+
+            # Size probe while the container is still alive: lets us show a
+            # real copy-percentage for big artifact trees (the old silent
+            # `docker cp` looked like a hang on the Save step).
+            total_kb = None
+            if shutil.which("du"):
+                try:
+                    probe = subprocess.run(
+                        docker_cmd + ["exec", run_name, "du", "-sk", "/workspace/artifacts"],
+                        capture_output=True, text=True, timeout=30)
+                    if probe.returncode == 0:
+                        total_kb = int(probe.stdout.split()[0])
+                except Exception:
+                    total_kb = None
+
+            set_status_fn("Safeguarding build artifacts...")
+            UI.info(f"Copying artifacts from sandbox"
+                    + (f" (~{total_kb // 1024} MB)" if total_kb and total_kb > 1024 else "…"))
+
+            cp_proc = subprocess.Popen(
+                docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/.", str(artifacts_path.resolve())],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # poll destination size -> live percentage via UI.progress
+            if total_kb and shutil.which("du"):
+                dest = str(artifacts_path.resolve())
+                while cp_proc.poll() is None:
+                    try:
+                        used = subprocess.run(["du", "-sk", dest],
+                                              capture_output=True, text=True)
+                        kb = int(used.stdout.split()[0])
+                        pct = min(99.0, kb * 100.0 / max(total_kb, 1))
+                        UI._emit("progress", pct=pct, text="Saving artifacts…")
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+            cp_proc.wait()
+            UI._emit("progress", pct=100.0, text="Artifacts saved")
+
             # Always salvage whatever the container produced (logs, manifest,
             # partial artifacts) regardless of build outcome.
-            subprocess.run(docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/.", str(artifacts_path.resolve())],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             (artifacts_path / "build.log").write_text("".join(log_lines), encoding="utf-8", errors="replace")
         except Exception:
             pass
@@ -384,4 +421,9 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
         set_status_fn(t('docker_cleanup_status'))
         subprocess.run(docker_cmd + ["rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         _gc_stale_runs(docker_cmd)
-        subprocess.run(docker_cmd + ["image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # prune in background: it can take seconds and blocked the Save step
+        threading.Thread(
+            target=lambda: subprocess.run(docker_cmd + ["image", "prune", "-f"],
+                                          stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL),
+            daemon=True).start()
