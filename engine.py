@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import shutil
+import tarfile
 import time
 import json
 import argparse
@@ -135,6 +136,26 @@ class Engine:
         if head.startswith(b"#!"):
             return True
         return head in cls.EXEC_MAGIC
+
+    def _write_bundle(self) -> int:
+        """Compress every harvested artifact into ONE tar.gz so the host can
+        pull a single file instead of thousands of small ones (docker cp
+        per-file overhead made the Save step crawl). Returns bundle size."""
+        bundle = self.out_root / "_bundle.tar.gz"
+        try:
+            if bundle.exists():
+                bundle.unlink()
+            with tarfile.open(bundle, "w:gz", compresslevel=1) as tf:
+                for f in sorted(self.out_root.iterdir()):
+                    if f.name.startswith("_bundle"):
+                        continue
+                    if f.is_file():
+                        tf.add(f, arcname=f.name, recursive=False)
+                    elif f.is_dir():
+                        tf.add(f, arcname=f.name)
+            return bundle.stat().st_size
+        except Exception:
+            return 0
 
     def harvest(self, name: str, root: Path, plugin: dict) -> list:
         items = []
@@ -633,6 +654,7 @@ class Engine:
                         self.extra_out_dirs = self._scan_js_extra_dirs(ws["root"], root)
                 artifacts = self.harvest(name, root, plugin)
                 if artifacts:
+                    self._write_bundle()
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": artifacts})
                     self.stats["success"] += 1
                     return
@@ -701,6 +723,7 @@ class Engine:
                 dur = round(time.time() - t0, 1)
                 UI.log(UI.YELLOW, "PARTIAL     ",
                        f"{len(artifacts)} artifact(s) harvested despite workspace task failures")
+                self._write_bundle()
                 self.manifest_data["projects"].append({"name": name, "lang": plugin["name"],
                                                        "time": dur, "items": artifacts})
                 self.stats["success"] += 1
@@ -733,6 +756,7 @@ class Engine:
                                                         f'{name}_source')
                         shutil.copytree(root_candidate, proj_dest, ignore=ignore, dirs_exist_ok=True)
                         UI.log(UI.GREEN, t('act_saved'), f"Source -> {proj_dest.name}")
+                    self._write_bundle()
                     self.manifest_data["projects"].append({"name": name, "lang": plugin["name"], "time": dur, "items": scripts, "runtime_deps": plugin.get("runtime_deps", [])})
                     self.stats["success"] += 1
                     return

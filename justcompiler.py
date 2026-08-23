@@ -15,7 +15,7 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
@@ -476,8 +476,12 @@ def execute_build(raw_build: str, branch: str | None = None,
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     t0_run = time.time()
     project_name = target.resolve().name
-    if commit:
-        project_name = project_name.rsplit("-", 1)[0]
+    # cloned repos live in cache dirs like 'rich-<hash>': strip the hash suffix
+    # (both for URL flows and when someone passes the cache path directly)
+    if re.search(r"-[0-9a-f]{12}$", project_name):
+        stripped = project_name.rsplit("-", 1)[0]
+        if target.resolve().parent.name == "repos" or commit:
+            project_name = stripped
     build_folder = artifacts_folder / f"{project_name}_{ts}"
     build_folder.mkdir(parents=True, exist_ok=True)
 

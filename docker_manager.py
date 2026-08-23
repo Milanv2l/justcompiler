@@ -371,41 +371,90 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
                                       str(artifacts_path.resolve())],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                # SUCCESS: size probe while the container is still alive: lets
-                # us show a real copy-percentage for big artifact trees.
-                total_kb = None
-                if shutil.which("du"):
-                    try:
-                        probe = subprocess.run(
-                            docker_cmd + ["exec", run_name, "du", "-sk", "/workspace/artifacts"],
-                            capture_output=True, text=True, timeout=30)
-                        if probe.returncode == 0:
-                            total_kb = int(probe.stdout.split()[0])
-                    except Exception:
-                        total_kb = None
-
+                # SUCCESS: prefer the single compressed bundle the engine wrote
+                # (one-file transfer beats per-file docker cp on many-file trees)
                 set_status_fn("Safeguarding build artifacts...")
-                UI.info(f"Copying artifacts from sandbox"
-                        + (f" (~{total_kb // 1024} MB)" if total_kb and total_kb > 1024 else "…"))
+                bundle_local = artifacts_path / "_bundle.tar.gz"
+                got_bundle = False
+                try:
+                    subprocess.run(
+                        docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/_bundle.tar.gz",
+                                      str(bundle_local)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3600)
+                    got_bundle = bundle_local.is_file() and bundle_local.stat().st_size > 0
+                except Exception:
+                    got_bundle = False
 
-                cp_proc = subprocess.Popen(
-                    docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/.", str(artifacts_path.resolve())],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                # poll destination size -> live percentage via UI.progress
-                if total_kb and shutil.which("du"):
-                    dest = str(artifacts_path.resolve())
-                    while cp_proc.poll() is None:
+                if got_bundle:
+                    mb = bundle_local.stat().st_size / (1024 * 1024)
+                    UI.info(f"Transferring artifact bundle ({mb:.1f} MB)…")
+                    import tarfile as _tf
+                    extracted = 0
+                    with _tf.open(bundle_local, "r:gz") as tf:
+                        members = tf.getmembers()
+                        total = sum(m.size for m in members) or 1
+                        last = 0.0
+                        for m in members:
+                            tf.extract(m, path=artifacts_path)
+                            extracted += m.size
+                            pct = min(99.0, extracted * 100.0 / total)
+                            if pct - last >= 2.0:
+                                UI._emit("progress", pct=pct,
+                                         text=f"Extracting artifacts… {extracted // (1024*1024)} MB")
+                                last = pct
+                    try:
+                        bundle_local.unlink()
+                    except Exception:
+                        pass
+                    UI._emit("progress", pct=100.0, text="Artifacts saved")
+                else:
+                    # FALLBACK: older engine image without bundling — full tree cp
+                    # with size probe while the container is still alive.
+                    total_kb = None
+                    if shutil.which("du"):
                         try:
-                            used = subprocess.run(["du", "-sk", dest],
-                                                  capture_output=True, text=True)
-                            kb = int(used.stdout.split()[0])
-                            pct = min(99.0, kb * 100.0 / max(total_kb, 1))
-                            UI._emit("progress", pct=pct, text="Saving artifacts…")
+                            probe = subprocess.run(
+                                docker_cmd + ["exec", run_name, "du", "-sk", "/workspace/artifacts"],
+                                capture_output=True, text=True, timeout=30)
+                            if probe.returncode == 0:
+                                total_kb = int(probe.stdout.split()[0])
                         except Exception:
-                            pass
-                        time.sleep(0.5)
-                cp_proc.wait()
-                UI._emit("progress", pct=100.0, text="Artifacts saved")
+                            total_kb = None
+
+                    UI.info(f"Copying artifacts from sandbox"
+                            + (f" (~{total_kb // 1024} MB)" if total_kb and total_kb > 1024 else "…"))
+
+                    cp_proc = subprocess.Popen(
+                        docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/.", str(artifacts_path.resolve())],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if total_kb and shutil.which("du"):
+                        dest = str(artifacts_path.resolve())
+                        while cp_proc.poll() is None:
+                            try:
+                                used = subprocess.run(["du", "-sk", dest],
+                                                      capture_output=True, text=True)
+                                kb = int(used.stdout.split()[0])
+                                pct = min(99.0, kb * 100.0 / max(total_kb, 1))
+                                UI._emit("progress", pct=pct, text="Saving artifacts…")
+                            except Exception:
+                                pass
+                            time.sleep(0.5)
+                        cp_proc.wait()
+                        UI._emit("progress", pct=100.0, text="Artifacts saved")
+                    else:
+                        cp_proc.wait()
+                        UI._emit("progress", pct=100.0, text="Artifacts saved")
+
+                # bundle excludes manifest/log (written after harvest): pull small
+                for f in ("build_log.txt", "build_manifest.json"):
+                    try:
+                        subprocess.run(
+                            docker_cmd + ["cp", f"{run_name}:/workspace/artifacts/{f}",
+                                          str(artifacts_path.resolve())],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception:
+                        pass
+                    UI._emit("progress", pct=100.0, text="Artifacts saved")
 
             # Always salvage whatever the container produced (logs, manifest,
             # partial artifacts) regardless of build outcome.
