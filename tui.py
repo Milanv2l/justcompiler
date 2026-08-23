@@ -237,6 +237,9 @@ if HAS_TEXTUAL:
             if not src:
                 err.update("[red]Enter a path or URL first.[/]")
                 return
+            if not jc._is_git_url(src) and not Path(src).expanduser().exists():
+                err.update(f"[red]Path does not exist:[/] {src}")
+                return
             err.update("")
             target_arg = None if target in ("auto", "", None) else target
             self.app.start_build(src, branch=branch, target=target_arg)
@@ -346,9 +349,29 @@ if HAS_TEXTUAL:
             table.cursor_type = "row"
             table.add_columns("Name", "Kind", "Size", "Main")
             arts = jc._scan_artifacts(self.artifacts_dir)
+            if not arts:
+                # archives-only or dir-bundles: still show what was produced
+                manifest = {}
+                try:
+                    mf = self.artifacts_dir / "build_manifest.json"
+                    manifest = json.loads(mf.read_text())
+                except Exception:
+                    pass
+                for proj in manifest.get("projects", []):
+                    for item in proj.get("items", []):
+                        n = item.get("name", "")
+                        p = self.artifacts_dir / n
+                        size = p.stat().st_size if p.is_file() else 0
+                        from collections import namedtuple
+                        AI = jc.ArtifactInfo
+                        arts.append(AI(name=n, kind=item.get("kind", "artifact"),
+                                       cmd=item.get("path") and [item["path"]],
+                                       cwd=None, size=size,
+                                       desc="", is_main=True))
             for a in arts:
                 mark = "[b green]✔[/]" if a.is_main else ""
-                table.add_row(a.name, a.kind, jc.__dict__.get("_size_str", lambda s: f"{s//1024} KiB")(a.size), mark, key=a.name)
+                table.add_row(a.name, a.kind, f"{a.size//1024} KiB" if a.size else "—",
+                              mark, key=a.name)
             hint = self.query_one("#art-hint", Static)
             deps = self.result.get("summary", {}).get("possible_runtime_deps", [])
             if deps:
@@ -356,7 +379,12 @@ if HAS_TEXTUAL:
 
         def _selected(self):
             table = self.query_one("#art-table", DataTable)
-            row = table.coordinate_to_cell_key(table.cursor_coordinate)[0]
+            if table.row_count == 0:
+                return None
+            try:
+                row = table.coordinate_to_cell_key(table.cursor_coordinate)[0]
+            except Exception:
+                return None
             return str(row.value) if row and row.value else None
 
         def action_run_artifact(self):
@@ -364,6 +392,13 @@ if HAS_TEXTUAL:
             if not name:
                 return
             arts = {a.name: a for a in jc._scan_artifacts(self.artifacts_dir)}
+            if not arts:
+                # manifest-fallback entries (bundles/archives): no runnable cmd
+                self.app.run_artifact_in_modal(
+                    jc.ArtifactInfo(name=name, kind="artifact", cmd=None, cwd=None,
+                                    size=0, desc="", is_main=True),
+                    Path(self.result["artifacts_dir"]))
+                return
             art = arts.get(name)
             if not art:
                 return
@@ -430,29 +465,38 @@ if HAS_TEXTUAL:
 
         def _do_force_update(self):
             def job():
+                captured = []
+                core.UI.bind(captured.append)
                 try:
-                    done = jc._do_update(ask=False, force=True)
-                    msg = "Updated! Restart to apply." if done else \
-                        f"Already latest ({jc.VERSION})."
-                except Exception as e:
-                    msg = f"Update failed: {e}"
+                    try:
+                        done = jc._do_update(ask=False, force=True)
+                        msg = "Updated! Restart to apply." if done else \
+                            f"Already latest ({jc.VERSION})."
+                    except Exception as e:
+                        msg = f"Update failed: {e}"
+                finally:
+                    core.UI.unbind()
+                detail = "  |  ".join(str(e.get("msg", "")) for e in captured
+                                      if e.get("event") in ("info", "warn", "error"))[:200]
                 self.app.call_from_thread(
-                    lambda: self.query_one("#set-status", Static).update(msg))
+                    lambda: self.query_one("#set-status", Static)
+                    .update(f"{msg}  {detail}"))
             threading.Thread(target=job, daemon=True).start()
 
 
     class MessageScreen(Screen):
         BINDINGS = [("escape", "close", "Close"), ("enter", "close", "Close")]
 
-        def __init__(self, text: str, title: str = "Message"):
+        def __init__(self, text: str, title: str = "Message", markup: bool = False):
             super().__init__()
             self.text = text
             self.title_ = title
+            self.use_markup = markup
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
             yield Vertical(Label(f"[b]{self.title_}[/]"),
-                           RichLog(markup=True, wrap=True, id="msg-body"))
+                           RichLog(markup=self.use_markup, wrap=True, id="msg-body"))
             yield Footer()
 
         def on_mount(self):
@@ -540,12 +584,20 @@ if HAS_TEXTUAL:
             else:
                 err = result.get("summary", {}).get("error_class", "")
                 msg = f"Build failed ({result['status']}).\nerror_class: {err}\n\nSee logs in the build folder."
-                self.push_screen(MessageScreen(msg, title="Build failed"))
+                self.push_screen(MessageScreen(msg, title="Build failed", markup=False))
 
         # ---- artifact run -----------------------------------------------------
         def run_artifact_in_modal(self, artifact, artifacts_dir: Path):
             import subprocess
-            screen = MessageScreen("$ starting…", title=f"Run: {artifact.name}")
+            if not artifact.cmd:
+                self.push_screen(MessageScreen(
+                    "This artifact has no runnable command "
+                    f"(kind: {artifact.kind}).", title=f"Run: {artifact.name}"))
+                return
+            # plain-text output: program logs often contain [brackets] that
+            # would explode RichLog markup
+            screen = MessageScreen("$ starting…", title=f"Run: {artifact.name}",
+                                   markup=False)
             self.push_screen(screen)
 
             def job():
