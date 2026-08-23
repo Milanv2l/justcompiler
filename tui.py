@@ -206,12 +206,13 @@ if HAS_TEXTUAL:
             self.app.pop_screen()
 
         def compose(self) -> ComposeResult:
-            plugin_names = ["auto"]
+            plugin_names = ["auto", "__all__"]
             try:
                 plugins = json.loads((Path(jc.__file__).parent / "plugins.json").read_text())
                 plugin_names += [p["name"] for p in plugins]
             except Exception:
                 pass
+            labels = {"auto": "auto (best match)", "__all__": "All detected targets"}
             yield Header(show_clock=False)
             yield Vertical(
                 Label("[b]New build[/]"),
@@ -219,7 +220,8 @@ if HAS_TEXTUAL:
                 Input(placeholder="/path/to/project  or  https://github.com/user/repo",
                       id="src"),
                 Label("Build target"),
-                Select([(n, n) for n in plugin_names], value="auto", id="target"),
+                Select([(labels.get(n, n), n) for n in plugin_names],
+                       value="auto", id="target"),
                 Horizontal(
                     Button("Continue  ⏎", variant="primary", id="go"),
                     Button("Cancel", id="cancel"),
@@ -244,7 +246,8 @@ if HAS_TEXTUAL:
             if not src:
                 err.update("[red]Enter a path or URL first.[/]")
                 return
-            target_arg = None if target in ("auto", "", None) else target
+            all_targets = (target == "__all__")
+            target_arg = None if target in ("auto", "__all__", "", None) else target
 
             if jc._is_git_url(src):
                 # pick a branch from the remote before building
@@ -253,11 +256,11 @@ if HAS_TEXTUAL:
                     try:
                         default_branch, branches = jc.fetch_remote_git_info(src)
                         self.app.call_from_thread(
-                            self._open_branch_select, src, target_arg,
+                            self._open_branch_select, src, target_arg, all_targets,
                             default_branch, branches)
                     except Exception as e:
                         msg = f"[red]Branch fetch failed ({str(e)[:80]}). Using default branch.[/]"
-                        self.app.call_from_thread(self._fetch_failed, src, target_arg, msg)
+                        self.app.call_from_thread(self._fetch_failed, src, target_arg, all_targets, msg)
                 threading.Thread(target=fetch_job, daemon=True).start()
                 return
 
@@ -265,32 +268,33 @@ if HAS_TEXTUAL:
                 err.update(f"[red]Path does not exist:[/] {src}")
                 return
             err.update("")
-            self.app.start_build(src, branch=None, target=target_arg)
+            self.app.start_build(src, branch=None, target=target_arg, all_targets=all_targets)
 
-        def _fetch_failed(self, src, target_arg, msg):
+        def _fetch_failed(self, src, target_arg, all_targets, msg):
             try:
                 self.query_one("#form-error", Static).update(msg)
             except Exception:
                 pass
             self.app.start_build(src, branch=None, target=target_arg)
 
-        def _open_branch_select(self, src, target_arg, default_branch, branches):
+        def _open_branch_select(self, src, target_arg, all_targets, default_branch, branches):
             try:
                 self.query_one("#form-error", Static).update("")
             except Exception:
                 pass
-            self.app.push_screen(BranchSelectScreen(src, target_arg,
+            self.app.push_screen(BranchSelectScreen(src, target_arg, all_targets,
                                                     default_branch, branches))
 
 
     class BranchSelectScreen(Screen):
         BINDINGS = [("escape", "back", "Back")]
 
-        def __init__(self, url: str, target: str | None,
+        def __init__(self, url: str, target: str | None, all_targets: bool,
                      default_branch: str, branches: list):
             super().__init__()
             self.url = url
             self.target = target
+            self.all_targets = all_targets
             self.pairs = [(f"🌟 {default_branch}   (default)", default_branch)]
             self.pairs += [(f"    {b}", b) for b in branches if b != default_branch]
 
@@ -316,7 +320,9 @@ if HAS_TEXTUAL:
             except Exception:
                 return
             _, branch = self.pairs[idx]
-            self.app.start_build(self.url, branch=branch, target=self.target)
+            self.app.start_build(self.url, branch=branch,
+                                 target=self.target,
+                                 all_targets=self.all_targets)
 
 
     class BuildRunScreen(Screen):
@@ -611,6 +617,10 @@ if HAS_TEXTUAL:
     class JustCompilerApp(App[None]):
         TITLE = "JustCompiler"
         SCREENS = {"home": HomeScreen}
+        BINDINGS = [
+            ("question_mark", "help", "Help"),
+            ("f1", "help", "Help"),
+        ]
         CSS = """
         Screen { background: $surface; }
         #menu { height: auto; max-height: 40%; }
@@ -639,6 +649,22 @@ if HAS_TEXTUAL:
         def get_default_screen(self):
             return HomeScreen()
 
+        def action_help(self):
+            txt = (
+                "JustCompiler keybindings\n"
+                "------------------------\n"
+                "Home        n new build · s settings · r refresh · enter details · q quit\n"
+                "Build form  enter continue (URL -> branch picker) · esc back\n"
+                "Branch      arrows + enter select branch · esc back\n"
+                "Live build  c cancel sandbox · esc when finished\n"
+                "Artifacts   r run artifact · o open folder · esc home\n"
+                "Settings    esc back · switches/selects save instantly\n"
+                "Everywhere  ? this help · F1 same\n\n"
+                "Headless: justcompiler.py --build <path|url> [--branch B]\n"
+                "          [--target NAME] [--all-targets]"
+            )
+            self.push_screen(MessageScreen(txt, title="Help"))
+
         # ---- UI-sink bridge -------------------------------------------------
         def append_log_line(self, line: str):
             if self.run_screen is not None:
@@ -653,7 +679,7 @@ if HAS_TEXTUAL:
                 self.run_screen.set_phase(text)
 
         # ---- build lifecycle -------------------------------------------------
-        def start_build(self, src: str, branch=None, target=None):
+        def start_build(self, src: str, branch=None, target=None, all_targets=False):
             run_screen = BuildRunScreen()
             self.last_result = None
             self.run_screen = run_screen
@@ -664,7 +690,8 @@ if HAS_TEXTUAL:
                 try:
                     result = jc.execute_build(src, branch=branch,
                                               target_override=target,
-                                              lang=core._CURRENT_LANG)
+                                              lang=core._CURRENT_LANG,
+                                              all_targets=all_targets)
                 except Exception as e:
                     result = {"exit_code": 1, "status": "build_failed",
                               "summary": {"status": "build_failed",

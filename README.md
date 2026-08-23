@@ -38,8 +38,12 @@ The first launch downloads/builds the sandbox base image (~5–10 min, once per 
 ### Headless / autonomous mode
 
 ```bash
-python3 justcompiler.py --build <path-or-git-url> [--branch B] [--target NAME]
+python3 justcompiler.py --build <path-or-git-url> [--branch B] [--target NAME] [--all-targets]
 ```
+
+`--all-targets` builds every detected subproject in one run (e.g. a Python
+backend + Node frontend monorepo); the summary aggregates all of them and
+exit `3` means partial success.
 
 Give it a local path **or a repository URL** and it compiles unattended:
 
@@ -102,10 +106,11 @@ Running `python3 justcompiler.py` without `--build` opens a full-screen TUI
 available:
 
 - **Home** — status header, menu, and your 10 most recent builds (with status)
-- **Build form** — path or git URL, optional branch, target selector (`auto` or any plugin)
-- **Live build** — streaming log, docker-build progress bar, `c` to cancel the sandbox
+- **Build form** — path or git URL, branch picker for URLs, target selector: `auto`, **All detected targets**, or any specific plugin
+- **Live build** — streaming log, docker-build progress bar, elapsed timer + engine status every second, `c` to cancel the sandbox
 - **Artifacts** — table of harvested outputs; `r` runs one (output streams in-app), `o` opens the folder
 - **Settings** — language, updates, tests, auto-install-deps, sandbox profile, force update
+- **Help** — press `?` (or F1) anywhere
 
 Everything is keyboard-first (`n` new · `s` settings · `r` refresh/run ·
 `c` cancel · `esc` back · `q` quit); mouse clicks work as a bonus.
@@ -126,6 +131,8 @@ falls back to the classic ANSI panels and prints:
                                //         missing tools on demand (fast first build)
   "theme": "default",          // "default" | "minimal" (no panel borders)
   "run_tests": false,          // pass --test to the engine where supported
+  "keep_builds": 0,            // retention: keep only newest N EXECUTABLE folders
+  "notify": true,              // desktop notification when a build finishes
 
   // Optional sandbox hardening (all optional, safe defaults):
   "sandbox_network": false,    // container gets --network none (offline builds)

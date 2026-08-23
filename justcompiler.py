@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "2.2.1"
+VERSION = "2.3.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "plugins.json", "checksums.txt"]
@@ -355,8 +355,33 @@ def _error_class_from_log(build_folder: Path) -> str:
     probe.last_missing_tool = ""
     return probe.classify_errors(log)
 
+def _notify(title: str, body: str):
+    """Best-effort desktop notification (Linux/macOS/Windows)."""
+    try:
+        title = title.replace('"', "'").replace("`", "'")[:80]
+        body = body.replace('"', "'").replace("`", "'")[:160]
+        if sys.platform == "darwin":
+            subprocess.Popen(["osascript", "-e",
+                              f'display notification "{body}" with title "{title}"'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif sys.platform == "win32":
+            ps = ("[reflection.assembly]::LoadWithPartialName('System.Windows.Forms')|Out-Null;"
+                  f"$n=New-Object System.Windows.Forms.NotifyIcon;"
+                  f"$n.Icon=[System.Drawing.SystemIcons]::Information;"
+                  f"$n.Visible=$true;$n.ShowBalloonTip(5000,'{title}','{body}','Info')")
+            subprocess.Popen(["powershell", "-NoProfile", "-Command", ps],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=0x08000000)
+        else:
+            if shutil.which("notify-send"):
+                subprocess.Popen(["notify-send", "-a", "JustCompiler", title, body],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 def execute_build(raw_build: str, branch: str | None = None,
-                  target_override: str | None = None, lang: str = "en") -> dict:
+                  target_override: str | None = None, lang: str = "en",
+                  all_targets: bool = False) -> dict:
     """Shared build job used by BOTH the TUI and headless mode.
     Accepts a local path or git URL; emits progress through core.UI (so any
     bound sink receives live events). Never calls sys.exit.
@@ -392,11 +417,24 @@ def execute_build(raw_build: str, branch: str | None = None,
     # --- plan ---------------------------------------------------------------
     set_current_status("Scanning project...")
     targets = _scan_targets(target)
-    target_filter = target_override or _auto_select_target(target, targets)
-    if target_filter:
-        UI.log(UI.GREEN, t('build_selected'), target_filter)
+    if all_targets:
+        names = sorted({x["name"] for x in targets})
+        if not names:
+            UI.error("No supported projects found in this repository.")
+            summary = _summarize("invalid_input", "no_targets", str(raw_build),
+                                 None, 0.0, Path("."), {}, commit=commit)
+            return {"exit_code": 2, "status": "invalid_input",
+                    "summary": summary, "artifacts_dir": None,
+                    "build_folder": None}
+        target_filter = ""   # engine walks and builds every detected project
+        UI.log(UI.GREEN, t('build_selected'),
+               f"ALL {len(names)} target(s): {', '.join(names)}")
     else:
-        UI.log(UI.YELLOW, t('build_auto'), "")
+        target_filter = target_override or _auto_select_target(target, targets)
+        if target_filter:
+            UI.log(UI.GREEN, t('build_selected'), target_filter)
+        else:
+            UI.log(UI.YELLOW, t('build_auto'), "")
 
     proj_cfg = load_project_config(target)
     if proj_cfg.get("target") and not target_override:
@@ -465,6 +503,23 @@ def execute_build(raw_build: str, branch: str | None = None,
         (build_folder / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     except Exception:
         pass
+
+    # optional retention: keep only the newest N build folders
+    cfg_end = load_config()
+    try:
+        keep = int(cfg_end.get("keep_builds", 0) or 0)
+    except Exception:
+        keep = 0
+    if keep > 0:
+        removed = _clean_executables(artifacts_folder, keep=keep)
+        if removed:
+            UI.log(UI.DIM, "", f"Retention: removed {len(removed)} old build folder(s)")
+
+    if cfg_end.get("notify", True):
+        icon = {"success": "✅", "partial": "⚠️"}.get(status, "❌")
+        _notify(f"JustCompiler {icon} {status}",
+                f"{project_name} · {target_filter or 'all targets'} · {elapsed}s")
+
     return {"exit_code": {"success": 0, "partial": 3}.get(status, 1),
             "status": status, "summary": summary,
             "artifacts_dir": str(build_folder), "build_folder": build_folder}
@@ -1400,6 +1455,7 @@ if __name__ == "__main__":
     raw_build = None
     target_override = None
     branch_arg = None
+    all_targets_arg = False
     for i, arg in enumerate(sys.argv):
         if arg == "--build" and i + 1 < len(sys.argv):
             raw_build = sys.argv[i + 1]      # keep raw: Path() mangles 'https://'
@@ -1407,10 +1463,13 @@ if __name__ == "__main__":
             target_override = sys.argv[i + 1]
         elif arg == "--branch" and i + 1 < len(sys.argv):
             branch_arg = sys.argv[i + 1]
+        elif arg == "--all-targets":
+            all_targets_arg = True
 
     if raw_build:
         result = execute_build(raw_build, branch=branch_arg,
-                               target_override=target_override, lang=selected_lang)
+                               target_override=target_override, lang=selected_lang,
+                               all_targets=all_targets_arg)
         print(json.dumps(result["summary"], indent=2))
         sys.exit(result["exit_code"])
 

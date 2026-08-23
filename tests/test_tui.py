@@ -120,7 +120,7 @@ async def test_after_success_escape_returns_to_home(tmp_path, monkeypatch):
     out_dir.mkdir(parents=True)
     (out_dir / "x.bin").write_bytes(b"\x7fELFx")
 
-    def fake_execute(src, branch=None, target_override=None, lang="en"):
+    def fake_execute(src, branch=None, target_override=None, lang="en", all_targets=False):
         return {"exit_code": 0, "status": "success", "artifacts_dir": str(out_dir),
                 "build_folder": out_dir,
                 "summary": {"status": "success", "error_class": "", "target": "T",
@@ -143,7 +143,7 @@ async def test_after_success_escape_returns_to_home(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_after_failure_can_reach_home(tmp_path, monkeypatch):
-    def fake_execute(src, branch=None, target_override=None, lang="en"):
+    def fake_execute(src, branch=None, target_override=None, lang="en", all_targets=False):
         return {"exit_code": 1, "status": "build_failed", "artifacts_dir": None,
                 "build_folder": None,
                 "summary": {"status": "build_failed", "error_class": "oom",
@@ -175,7 +175,7 @@ async def test_url_submit_shows_branch_picker_then_build(monkeypatch):
     app = tui.JustCompilerApp()
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
-        def fake_start(src, branch=None, target=None):
+        def fake_start(src, branch=None, target=None, all_targets=False):
             started.update(src=src, branch=branch, target=target)
         monkeypatch.setattr(app, "start_build", fake_start)
         await pilot.press("n"); await pilot.pause()
@@ -206,7 +206,7 @@ async def test_url_branch_fetch_failure_falls_back(monkeypatch):
     app = tui.JustCompilerApp()
     async with app.run_test(size=(110, 44)) as pilot:
         await pilot.pause()
-        def fake_start(src, branch=None, target=None):
+        def fake_start(src, branch=None, target=None, all_targets=False):
             calls['b'] = branch
         monkeypatch.setattr(app, "start_build", fake_start)
         await pilot.press("n"); await pilot.pause()
@@ -223,7 +223,7 @@ async def test_recent_builds_refresh_on_return_home(tmp_path, monkeypatch):
     # Regression: Home stays mounted, so the recent list was stale after a
     # build — the just-finished project never appeared when going back.
     out_dir = tmp_path / "EXECUTABLE" / "fresh_1"
-    def fake_execute(src, branch=None, target_override=None, lang="en"):
+    def fake_execute(src, branch=None, target_override=None, lang="en", all_targets=False):
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "y.bin").write_bytes(b"\x7fELF")
         return {"exit_code": 0, "status": "success", "artifacts_dir": str(out_dir),
@@ -253,7 +253,7 @@ async def test_full_build_flow_via_form(tmp_path, monkeypatch):
     out_dir = tmp_path / "EXECUTABLE" / "fake_2026"
     out_dir.mkdir(parents=True)
 
-    def fake_execute(src, branch=None, target_override=None, lang="en"):
+    def fake_execute(src, branch=None, target_override=None, lang="en", all_targets=False):
         jc.UI.info("simulated line")
         (out_dir / "x.bin").write_bytes(b"\x7fELFfake")
         return {"exit_code": 0, "status": "success",
