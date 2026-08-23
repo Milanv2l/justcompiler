@@ -14,7 +14,7 @@ import core
 from core import UI, t
 import docker_manager
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "plugins.json", "checksums.txt"]
@@ -543,6 +543,11 @@ def _do_update(ask=True, force=False):
         remote_version = response.read().decode('utf-8').strip()
     if not force and remote_version == VERSION:
         return False if not ask else None
+    if force and remote_version == VERSION:
+        # Same version: re-copying files over a running process is pointless
+        set_current_status(f"Already latest ({VERSION})")
+        UI.warn(f"Force update skipped: {VERSION} is already installed.")
+        return False
     if ask:
         UI.info(f"New version {remote_version} available (current: {VERSION})")
         confirm = input(f"{UI.CYAN}{UI.BOLD}Update to v{remote_version}? (y/n): {UI.RESET}").strip().lower()

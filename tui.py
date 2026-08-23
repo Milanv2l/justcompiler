@@ -195,6 +195,9 @@ if HAS_TEXTUAL:
     class BuildFormScreen(Screen):
         BINDINGS = [("escape", "back", "Back")]
 
+        def action_back(self):
+            self.app.pop_screen()
+
         def compose(self) -> ComposeResult:
             plugin_names = ["auto"]
             try:
@@ -420,6 +423,9 @@ if HAS_TEXTUAL:
 
     class SettingsScreen(Screen):
         BINDINGS = [("escape", "back", "Back")]
+
+        def action_back(self):
+            self.app.pop_screen()
 
         def compose(self) -> ComposeResult:
             cfg = jc.load_config()
