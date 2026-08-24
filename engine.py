@@ -1,4 +1,5 @@
 import os
+import platform
 import sys
 import subprocess
 import shutil
@@ -11,6 +12,9 @@ import re
 from pathlib import Path
 import core
 from core import UI, t, DependencyManager
+
+
+
 
 class Engine:
     def __init__(self, src_root: Path, out_root: Path, test_mode: bool, auto_install: bool = False, plugin_url: str = None, project_name: str = ""):
@@ -873,17 +877,27 @@ class Engine:
         icons = stage / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
         apps.mkdir(parents=True, exist_ok=True); icons.mkdir(parents=True, exist_ok=True)
         (apps / f"{app_name}.desktop").write_text(
-            desktop_entry(app_name, main_bin.name, description))
+            desktop_entry(app_name, main_bin.name, description, icon=app_name))
         icon_src = None
         for pat in ("*.png", "*.svg"):
-            hits = sorted(self.out_root.rglob(pat)) or \
-                   sorted(Path("/workspace/persist").rglob(pat))
-            icon_src = hits[0] if hits else None
-            if icon_src: break
-        if icon_src:
-            shutil.copy2(icon_src, icons / f"{app_name}.png")
+            for base in (Path("/workspace/persist"), self.out_root):
+                hits = sorted(base.rglob(pat)) if base.is_dir() else []
+                if hits:
+                    icon_src = hits[0]
+                    break
+            if icon_src:
+                break
+        dst_icon = icons / f"{app_name}.png"
+        if icon_src and Path(icon_src).resolve() != dst_icon.resolve():
+            try:
+                shutil.copy2(icon_src, dst_icon)
+            except shutil.SameFileError:
+                pass
+        if not dst_icon.exists():
+            dst_icon.write_bytes(_PLACEHOLDER_PNG)   # tooling needs an Icon=
         (stage / f"{app_name}.desktop").write_text(
-            desktop_entry(app_name, main_bin.name, description))
+            desktop_entry(app_name, main_bin.name, description,
+                          icon=app_name))
         return stage
 
     def cmd_packaging(self, formats_csv: str) -> int:
@@ -919,10 +933,11 @@ class Engine:
         env = os.environ.copy()
         env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
 
-        def sh(cmd, on_fail=None):
+        def sh(cmd, on_fail="step failed"):
             r = subprocess.run(cmd, env=env, capture_output=True, text=True)
-            if r.returncode != 0 and on_fail:
-                UI.warn(on_fail + " :: " + (r.stderr or r.stdout)[-200:])
+            if r.returncode != 0:
+                tail = ((r.stderr or "") + (r.stdout or ""))[-600:]
+                UI.warn((on_fail or "step failed") + " :: " + tail)
             return r.returncode == 0
 
         if "deb" in formats:
@@ -961,18 +976,33 @@ class Engine:
                 url = ("https://github.com/linuxdeploy/linuxdeploy/releases/"
                        "download/continuous/linuxdeploy-x86_64.AppImage")
                 subprocess.run(["curl", "-fsSL", "-o", str(ldep), url], check=False)
-            if not ldep.exists():
+            plugin = tools_cache / "linuxdeploy-plugin-appimage-x86_64.AppImage"
+            if not ldep.exists() or not plugin.exists():
+                base_url = ("https://github.com/linuxdeploy/linuxdeploy/releases/"
+                            "download/continuous")
+                plugin_url = ("https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/"
+                              "releases/download/continuous/"
+                              "linuxdeploy-plugin-appimage-x86_64.AppImage")
+                subprocess.run(["curl", "-fsSL", "-o", str(ldep),
+                                f"{base_url}/linuxdeploy-x86_64.AppImage"], check=False)
+                subprocess.run(["curl", "-fsSL", "-o", str(plugin), plugin_url],
+                               check=False)
+            if not ldep.exists() or not plugin.exists():
                 UI.warn("linuxdeploy download failed; skipping AppImage")
             else:
                 os.chmod(ldep, 0o755)
+                os.chmod(plugin, 0o755)
                 appdir = self._stage_appdir(main_bin, deb_name, desc)
-                ok = sh(["env",
-                         "APPIMAGE_EXTRACT_AND_RUN=1",
+                ok = sh(["env", "APPIMAGE_EXTRACT_AND_RUN=1",
                          str(ldep), "--appimage-extract-and-run",
                          "--appdir", str(appdir),
-                         "--desktop-file", str(appdir / f"{deb_name}.desktop"),
-                         "--output", "appimage",
-                         "--destdir", str(pkg_dir)])
+                         "--output", "appimage"],
+                        on_fail="AppImage creation failed")
+                # linuxdeploy writes into CWD; relocate result to packages/
+                for ai in list(Path.cwd().glob("*.AppImage")) + \
+                          list(Path("/workspace").glob("*.AppImage")):
+                    shutil.move(str(ai), str(pkg_dir / ai.name))
+                    results.append(ai.name)
                 ais = list(pkg_dir.glob("*.AppImage"))
                 if ok and ais: results.append(ais[0].name)
 
@@ -1039,35 +1069,13 @@ class Engine:
         # register packaged files in the manifest so the host sees them
         for p in sorted(pkg_dir.iterdir()):
             manifest["projects"].append({"name": root_name, "lang": "package",
-                                         "time": 0, "items": [{"name": "packages/" + p.name}]})
-            shutil.copy2(p, self.out_root / "packages" / p.name) if p.parent == pkg_dir else None
+                                         "time": 0,
+                                         "items": [{"name": "packages/" + p.name}]})
         mf_path.write_text(json.dumps(manifest, indent=4))
         UI.log(UI.GREEN, "Packaging", f"created {len(results)} package(s): "
                + ", ".join(results))
         return 0 if results else 1
 
-
-if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--src", required=True)
-    p.add_argument("--out", required=True)
-    p.add_argument("--test", action="store_true")
-    p.add_argument("--auto-install", action="store_true")
-    p.add_argument("--lang", default="en")
-    p.add_argument("--filter", default="")
-    p.add_argument("--name", default="")
-    p.add_argument("--packaging", action="store_true")
-    p.add_argument("--formats", default="deb,appimage")
-    args = p.parse_args()
-
-    core.set_lang(args.lang)
-    if args.packaging:
-        e = Engine(Path(args.src), Path(args.out), args.test,
-                   auto_install=args.auto_install, project_name=args.name)
-        sys.exit(e.cmd_packaging(args.formats))
-    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install,
-                project_name=args.name).run(filter_name=args.filter)
-    sys.exit(0 if ok else 1)
 
 # ================================================================ packaging
 # v2.7.0 — post-build packaging: deb / rpm / AppImage / flatpak-bundle /
@@ -1077,10 +1085,10 @@ def detect_project_version(root: Path) -> str:
     """Best-effort version detection across ecosystems."""
     import re as _re
     probes = [
-        ("pyproject.toml", _re.compile(r'^version\s*=\s*"([^"]+)"', _re.M)),
-        ("Cargo.toml",     _re.compile(r'^version\s*=\s*"([^"]+)"', _re.M)),
+        ("pyproject.toml", _re.compile(r'^\s*version\s*=\s*"([^"]+)"', _re.M)),
+        ("Cargo.toml",     _re.compile(r'^\s*version\s*=\s*"([^"]+)"', _re.M)),
         ("package.json",   None),                       # json below
-        ("meson.build",    _re.compile(r"version\s*:\s*'([^']+)'", _re.M)),
+        ("meson.build",    _re.compile(r"^\s*version\s*:\s*'([^']+)'", _re.M)),
         ("gradle.properties", _re.compile(r"^version\s*=\s*(\S+)", _re.M)),
     ]
     for fname, rx in probes:
@@ -1112,9 +1120,18 @@ def sanitize_app_id(name: str) -> str:
         if False else "com.justcompiler." + "".join(p.capitalize() for p in parts[:2] or ["App"])
 
 
-def desktop_entry(name: str, binary: str, comment: str = "") -> str:
+# 1x1 dark-blue PNG placeholder for apps without their own icon
+_PLACEHOLDER_PNG = __import__("base64").b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+
+def desktop_entry(name: str, binary: str, comment: str = "",
+                  icon: str | None = None) -> str:
+    icon_line = f"Icon={icon}\n" if icon else ""
     return (f"[Desktop Entry]\nType=Application\n"
             f"Name={name}\nExec={binary}\n"
+            f"{icon_line}"
             f"Comment={comment}\nTerminal=true\nCategories=Development;\n")
 
 
@@ -1140,3 +1157,26 @@ def rpm_spec(name: str, version: str, description: str,
 
 def windows_exe_supported(tool: str) -> bool:
     return tool in ("go", "cargo", "rustc")
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--src", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--test", action="store_true")
+    p.add_argument("--auto-install", action="store_true")
+    p.add_argument("--lang", default="en")
+    p.add_argument("--filter", default="")
+    p.add_argument("--name", default="")
+    p.add_argument("--packaging", action="store_true")
+    p.add_argument("--formats", default="deb,appimage")
+    args = p.parse_args()
+
+    core.set_lang(args.lang)
+    if args.packaging:
+        e = Engine(Path(args.src), Path(args.out), args.test,
+                   auto_install=args.auto_install, project_name=args.name)
+        sys.exit(e.cmd_packaging(args.formats))
+    ok = Engine(Path(args.src), Path(args.out), args.test, auto_install=args.auto_install,
+                project_name=args.name).run(filter_name=args.filter)
+    sys.exit(0 if ok else 1)

@@ -106,7 +106,7 @@ def test_detect_version_sources(tmp_path):
     (tmp_path / "Cargo.toml").write_text('[package]\nname="x"\nversion = "1.2.3"')
     assert detect_project_version(tmp_path) == "1.2.3"
     (tmp_path / "Cargo.toml").unlink()
-    (tmp_path / "meson.build").write_text("project('app', version: '4.5.6')")
+    (tmp_path / "meson.build").write_text("project(\n    'app',\n    version: '4.5.6',\n)")
     assert detect_project_version(tmp_path) == "4.5.6"
     (tmp_path / "package.json").write_text('{"version": "7.8.9"}')
     assert detect_project_version(tmp_path) == "7.8.9"

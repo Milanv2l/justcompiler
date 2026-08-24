@@ -373,6 +373,10 @@ def _error_class_from_log(build_folder: Path) -> str:
     probe.last_missing_tool = ""
     return probe.classify_errors(log)
 
+def _clean_project_name(folder_name: str) -> str:
+    """'mangojuice_20260824_005131' -> 'mangojuice' (strip ts suffix)."""
+    return re.sub(r"_\d{8}_\d{6}$", "", folder_name)
+
 def _notify(title: str, body: str):
     """Best-effort desktop notification (Linux/macOS/Windows)."""
     try:
@@ -1621,7 +1625,7 @@ if __name__ == "__main__":
             import docker_manager as _dm
             okp = _dm.run_packaging_container(
                 result["artifacts_dir"], package_arg,
-                Path(result["artifacts_dir"]).name.rsplit("_", 1)[0])
+                _clean_project_name(Path(result["artifacts_dir"]).name))
             pkgs = sorted(p.name for p in
                           Path(result["artifacts_dir"], "packages").iterdir()) \
                    if Path(result["artifacts_dir"], "packages").is_dir() else []

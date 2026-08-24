@@ -818,7 +818,7 @@ if HAS_TEXTUAL:
                            "Rust (Cargo)": "cargo"}.get(summ.get("target", ""))
             self.app.push_screen(PackageSelectScreen(
                 artifacts_dir=self.artifacts_dir,
-                project_name=self.artifacts_dir.name.rsplit("_", 1)[0],
+                project_name=jc._clean_project_name(self.artifacts_dir.name),
                 windows_ok=target_tool is not None,
                 windows_note="" if target_tool else
                     "(Windows-.exe: only Go & Rust projects support cross-build)"))
