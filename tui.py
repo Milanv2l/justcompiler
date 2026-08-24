@@ -122,7 +122,8 @@ try:
     from textual.screen import Screen
     from textual.widgets import (Header, Footer, Static, ListView, ListItem,
                                 Label, Input, Select, Switch, RichLog,
-                                DataTable, Button, ProgressBar)
+                                DataTable, Button, ProgressBar,
+                                TabbedContent, TabPane)
     HAS_TEXTUAL = True
 except Exception:  # pragma: no cover - fallback path exercised instead
     HAS_TEXTUAL = False
