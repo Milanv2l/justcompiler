@@ -1172,8 +1172,13 @@ if HAS_TEXTUAL:
         /* darker navy palette (v2.6.0) — tune these hexes to taste */
         Screen { background: #0d1117; }
         Header { background: #0b1622; }
+        Button { background: #16213a; }
+        Button:hover { background: #1e3a5c; }
+        Button:focus { background: #27507f; outline: none; }
         Button.-primary { background: #1e3a5c; }
         Button.-primary:hover { background: #27507f; }
+        Button.-primary:focus { background: #27507f; outline: none; }
+        Input:focus, Select:focus, Switch:focus { outline: none; }
         #menu { height: auto; max-height: 40%; }
         #recent { height: 1fr; }
         #recent-title, #home-menu-title { margin-left: 0; }
