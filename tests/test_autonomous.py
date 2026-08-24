@@ -80,7 +80,7 @@ def test_error_class_from_missing_log(tmp_path):
 
 def test_sandbox_flags_still_env_only():
     flags = dm._sandbox_flags(None, {}, None)
-    assert "CI=1" in flags and not any("justcompiler_run_" in f for f in flags)
+    assert "CI=true" in flags and not any("justcompiler_run_" in f for f in flags)
 
 # ------------------------------------------------------------- B2: overrides
 

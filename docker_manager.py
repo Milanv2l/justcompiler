@@ -86,7 +86,7 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
     flags = []
     # CI=1 keeps every toolchain non-interactive (pnpm 10 build-script
     # approvals otherwise block forever on a stdin-less container)
-    flags += ["-e", "CI=1", "-e", "PYTHONUNBUFFERED=1",
+    flags += ["-e", "CI=true", "-e", "PYTHONUNBUFFERED=1",
               "-e", "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1",
               "-e", "PUPPETEER_SKIP_DOWNLOAD=1"]
     if java_version:
@@ -115,7 +115,7 @@ def run_packaging_container(artifacts_path: Path, formats_csv: str,
     pkg_name = f"jc_pkg_{secrets.token_hex(4)}"
     cmd = get_docker_cmd() + [
         "run", "--rm", "--name", pkg_name,
-        "-e", "CI=1", "-e", "PYTHONUNBUFFERED=1",
+        "-e", "CI=true", "-e", "PYTHONUNBUFFERED=1",
         "-v", f"{Path(artifacts_path).resolve()}:/workspace/artifacts:z",
         "-v", f"{tools}:/root/.cache/justcompiler:z",
         image_tag, "--packaging", "--formats", formats_csv,
@@ -207,7 +207,7 @@ ENV PATH="$JAVA_HOME/bin:$PATH"
     qt6-base-dev qt6-tools-dev-tools openjdk-8-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk maven gradle golang \\
     php-cli composer ruby-full flex bison bc libelf-dev libssl-dev valac meson crystal apt-file \\
     libgtk-3-dev libgtk-4-dev libadwaita-1-dev libgee-0.8-dev blueprint-compiler \\
-    rpm flatpak file desktop-file-utils \\
+    rpm flatpak file desktop-file-utils xdg-utils \\
     libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \\
     pkg-config libxdo-dev libgdk-pixbuf-xlib-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev \\
     && rm -rf /var/lib/apt/lists/*

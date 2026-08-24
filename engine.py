@@ -393,6 +393,14 @@ class Engine:
                 return "if not exist build mkdir build && cd build && cmake .. && cmake --build . --config Release"
             else:
                 return "mkdir -p build && cd build && cmake .. && make -j$(nproc)"
+        elif cmd == "DYNAMIC_TAURI_RESOLUTION":
+            pm = "pnpm"
+            if (root / "yarn.lock").exists(): pm = "yarn"
+            elif (root / "package-lock.json").exists(): pm = "npm"
+            install_cmd = f"{pm} install --no-frozen-lockfile" if pm != "npm" else "npm install --legacy-peer-deps"
+            # bypass code signing: strip updater config so no keys are needed
+            import json as _j; cfg = _j.dumps({"bundle": {"createUpdaterArtifacts": False}})
+            return install_cmd + " && npx tauri build --bundles deb --config '" + cfg + "'"
         return cmd
 
     def classify_errors(self, errs: list) -> str:

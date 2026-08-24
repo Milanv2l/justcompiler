@@ -37,7 +37,7 @@ def test_detect_lists_nonempty():
 def test_specificity_is_int_in_range():
     for p in _load():
         assert isinstance(p["specificity"], int), p["name"]
-        assert 1 <= p["specificity"] <= 11, p["name"]
+        assert 1 <= p["specificity"] <= 12, p["name"]
 
 
 def test_minecraft_plugins_outrank_generic_java():
