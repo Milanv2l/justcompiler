@@ -200,8 +200,25 @@ if HAS_TEXTUAL:
                     data = json.loads(sfile.read_text())
                 except Exception:
                     pass
+            status = data.get("status", "-")
+            # failed builds -> FailureScreen with copy-logs action
+            if status == "build_failed":
+                result = {"status": status,
+                          "summary": data,
+                          "artifacts_dir": str(d)}
+                self.app.push_screen(tui.FailureScreen(result))
+                return
+            # success/partial with existing folder -> full ArtifactsScreen
+            has_files = d.is_dir() and any(d.iterdir())
+            if status in ("success", "partial") and has_files:
+                result = {"status": status,
+                          "summary": data,
+                          "artifacts_dir": str(d)}
+                self.app.push_screen(ArtifactsScreen(d.resolve(), result))
+                return
+            # fallback: folder removed or unknown status
             lines = [f"[b]{d.name}[/]",
-                     f"status: {data.get('status','-')}   target: {data.get('target','-')}",
+                     f"status: {status}   target: {data.get('target','-')}",
                      f"duration: {data.get('duration_s','?')}s",
                      f"artifacts: {', '.join(data.get('artifacts', []) or ['-'])}",
                      "", str(d)]
@@ -374,6 +391,7 @@ if HAS_TEXTUAL:
                 Label("", id="run-timer"),
                 ProgressBar(total=100.0, show_eta=False, id="run-bar"),
                 Static("", id="run-steps"),
+                Static("[dim]press [b]l[/b] for raw output[/]", id="log-hint"),
                 Static("", id="run-lastline"),
                 RichLog(highlight=False, markup=False, wrap=True, id="run-log"),
                 Horizontal(Button("Cancel build", variant="error", id="cancel")),

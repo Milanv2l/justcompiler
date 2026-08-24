@@ -515,6 +515,11 @@ class Engine:
             "gee-0.8": "libgee-0.8-dev",
             "adwaita": "libadwaita-1-dev",
             "blueprint-compiler": "blueprint-compiler",
+            "gbm.h": "libgbm-dev",
+            "EGL/egl.h": "libegl1-mesa-dev",
+            "girepository-1.0/gir.h": "libgirepository1.0-dev",
+            "clang-c/CXString.h": "libclang-dev",
+            "vte/vte.h": "libvte-dev",
         }
 
         for err in errors:
@@ -881,32 +886,121 @@ class Engine:
         (stage / "usr" / "bin").mkdir(parents=True, exist_ok=True)
         shutil.copy2(main_bin, stage / "usr" / "bin" / main_bin.name)
         os.chmod(stage / "usr" / "bin" / main_bin.name, 0o755)
+
+        # --- desktop entry ---
         apps = stage / "usr" / "share" / "applications"
-        icons = stage / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
-        apps.mkdir(parents=True, exist_ok=True); icons.mkdir(parents=True, exist_ok=True)
-        (apps / f"{app_name}.desktop").write_text(
+        apps.mkdir(parents=True, exist_ok=True)
+        desktop_path = apps / f"{app_name}.desktop"
+        desktop_path.write_text(
             desktop_entry(app_name, main_bin.name, description, icon=app_name))
+
+        # --- AppStream metainfo ---
+        metainfo_dir = stage / "usr" / "share" / "metainfo"
+        metainfo_dir.mkdir(parents=True, exist_ok=True)
+        app_id_str = sanitize_app_id(app_name)
+        proj_ver = detect_project_version(Path("/workspace/persist"))
+        today = time.strftime("%Y-%m-%d")
+        xml_lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<component type="desktop-application">',
+            f'  <id>{app_id_str}</id>',
+            f'  <name>{app_name}</name>',
+            f'  <summary>{description}</summary>',
+            '  <metadata_license>FSFAP</metadata_license>',
+            '  <project_license>LicenseRef-Unknown</project_license>',
+            '  <releases>',
+            f'    <release version="{proj_ver}" date="{today}"/>',
+            '  </releases>',
+            '</component>',
+        ]
+        (metainfo_dir / f"{app_id_str}.metainfo.xml").write_text("\n".join(xml_lines))
+
+        # --- icons at multiple sizes ---
+        icon_sizes = [64, 128, 256]
         icon_src = None
         for pat in ("*.png", "*.svg"):
             for base in (Path("/workspace/persist"), self.out_root):
                 hits = sorted(base.rglob(pat)) if base.is_dir() else []
+                hits = [h for h in hits if h.stat().st_size > 500]
                 if hits:
                     icon_src = hits[0]
                     break
             if icon_src:
                 break
-        dst_icon = icons / f"{app_name}.png"
-        if icon_src and Path(icon_src).resolve() != dst_icon.resolve():
-            try:
-                shutil.copy2(icon_src, dst_icon)
-            except shutil.SameFileError:
-                pass
-        if not dst_icon.exists():
-            dst_icon.write_bytes(_PLACEHOLDER_PNG)   # tooling needs an Icon=
+
+        dst_icon = None
+        for size in icon_sizes:
+            idir = stage / "usr" / "share" / "icons" / "hicolor" / f"{size}x{size}" / "apps"
+            idir.mkdir(parents=True, exist_ok=True)
+            dst_icon = idir / f"{app_name}.png"
+            if icon_src and Path(icon_src).resolve() != dst_icon.resolve():
+                try:
+                    shutil.copy2(icon_src, dst_icon)
+                except shutil.SameFileError:
+                    pass
+            if not dst_icon.exists():
+                dst_icon.write_bytes(_PLACEHOLDER_PNG)
+
+        # root-level copies for linuxdeploy
         (stage / f"{app_name}.desktop").write_text(
-            desktop_entry(app_name, main_bin.name, description,
-                          icon=app_name))
+            desktop_entry(app_name, main_bin.name, description, icon=app_name))
+        if icon_src:
+            shutil.copy2(icon_src, stage / f"{app_name}.png")
+
         return stage
+
+    def _smart_route_packages(self, formats: list) -> int:
+        """Package non-ELF artifacts (jars, whl, web assets) as archives."""
+        import zipfile as _zf
+        pkg_dir = self.out_root / "packages"
+        pkg_dir.mkdir(exist_ok=True)
+        results = []
+        
+        # collect all non-binary harvested items
+        harvestables = []
+        for f in sorted(self.out_root.iterdir()):
+            if f.name.startswith("_") or f.name == "packages" or                f.name in ("build_log.txt", "build_manifest.json", "failure_report.txt"):
+                continue
+            if f.is_file():
+                if f.suffix in ('.jar', '.war'):
+                    harvestables.append(('jar', f))
+                elif f.suffix in ('.whl', '.tar.gz'):
+                    harvestables.append(('package', f))
+                elif not f.name.startswith('.'):
+                    harvestables.append(('misc', f))
+            elif f.is_dir() and not f.name.endswith('_source'):
+                has_html = any(f.rglob('index.html'))
+                kind = 'web' if has_html else 'assets'
+                harvestables.append((kind, f))
+        
+        if not harvestables:
+            UI.error("Nothing to package — no artifacts found.")
+            return 1
+        
+        for kind, path in harvestables:
+            dst = pkg_dir / (path.stem + ".zip" if kind in ("jar", "package") 
+                             else path.name + ".tar.gz")
+            try:
+                if kind == 'jar':
+                    # zip with README
+                    readme = pkg_dir / "_README.txt"
+                    readme.write_text(
+                        f"{path.name}\nJava archive — run with: java -jar {path.name}\n")
+                    with _zf.ZipFile(dst, 'w') as zf:
+                        zf.write(path, path.name)
+                        if readme.exists():
+                            zf.write(readme, "README.txt")
+                    readme.unlink(missing_ok=True)
+                else:
+                    with tarfile.open(dst, "w:gz") as tf:
+                        tf.add(path, arcname=path.name)
+                results.append(dst.name)
+                UI.log(UI.GREEN, "Smart route", f"{kind} -> {dst.name}")
+            except Exception as e:
+                UI.warn(f"Failed to package {path.name}: {e}")
+        
+        UI.log(UI.GREEN, "Smart packaging", f"created {len(results)} archive(s)")
+        return 0 if results else 1
 
     def cmd_packaging(self, formats_csv: str) -> int:
         """Entry point for --packaging mode. Returns rc."""
@@ -917,10 +1011,6 @@ class Engine:
         except Exception:
             manifest = {"projects": []}
         projects = manifest.get("projects", [])
-        main_bin = self._pick_main_binary()
-        if not main_bin:
-            UI.error("No runnable binary found to package.")
-            return 1
         root_name = self.project_name or self.src_root.name
         version = detect_project_version(Path("/workspace/persist"))
         app_id = sanitize_app_id(root_name)
@@ -930,6 +1020,20 @@ class Engine:
         desc = f"{root_name} — built with JustCompiler"
         pkg_dir = self.out_root / "packages"
         pkg_dir.mkdir(exist_ok=True)
+
+        main_bin = self._pick_main_binary()
+        if not main_bin:
+            # Smart routing: no ELF binary, but maybe there are jars/whl/web
+            # assets that deserve a zip or tar.gz archive instead of deb/rpm.
+            UI.info("No ELF binary found — using smart packaging router…")
+            rc = self._smart_route_packages(formats)
+            if rc == 0 and pkg_dir.is_dir():
+                for p in sorted(pkg_dir.iterdir()):
+                    manifest["projects"].append({
+                        "name": root_name, "lang": "package", "time": 0,
+                        "items": [{"name": "packages/" + p.name}]})
+                mf_path.write_text(json.dumps(manifest, indent=4))
+            return rc
 
         staging_usr = Path("/workspace/pkg/staging/usr/bin")
         shutil.rmtree("/workspace/pkg", ignore_errors=True)

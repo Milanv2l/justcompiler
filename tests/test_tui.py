@@ -765,3 +765,25 @@ async def test_welcome_intro_shows_once(monkeypatch, tmp_path):
     async with app2.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         assert isinstance(app2.screen, tui.HomeScreen)   # no overlay again
+
+
+@pytest.mark.asyncio
+async def test_history_entry_reopens_artifacts(tmp_path, monkeypatch):
+    # Regression: entering a history row must open ArtifactsScreen (not just
+    # a text popup) so users can re-run artifacts from past builds.
+    from textual.widgets import DataTable
+    d = tmp_path / "EXECUTABLE" / "old_1"
+    d.mkdir(parents=True)
+    (d / "x.bin").write_bytes(b"\x7fELF")
+    (d / "summary.json").write_text(json.dumps(
+        {"status": "success", "target": "Crystal", "duration_s": 5,
+         "artifacts": ["x.bin"], "possible_runtime_deps": []}))
+    monkeypatch.chdir(tmp_path)
+    app = tui.JustCompilerApp()
+    async with app.run_test(size=(110, 44)) as pilot:
+        await pilot.pause()
+        tbl = app.screen.query_one("#recent", DataTable)
+        tbl.focus()
+        await pilot.press("enter"); await pilot.pause()
+        assert isinstance(app.screen, tui.ArtifactsScreen), \
+            f"got {type(app.screen).__name__}"
