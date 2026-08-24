@@ -16,7 +16,7 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.10.0"
+VERSION = "2.10.1"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
 UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
@@ -1598,7 +1598,7 @@ if __name__ == "__main__":
             daemon_mod.serve(port=port,
                          execute_fn=execute_build,
                          version_fn=lambda: VERSION)
-    if sys.argv[1].lower() in ("--version", "-v"):
+        if sys.argv[1].lower() in ("--version", "-v"):
             print(f"JustCompiler v{VERSION}")
             sys.exit(0)
 
