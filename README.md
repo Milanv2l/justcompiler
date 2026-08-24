@@ -57,6 +57,20 @@ Give it a local path **or a repository URL** and it compiles unattended:
 - Missing host runtime-dependencies are *reported* in the summary; set
   `"auto_install_deps": true` in config.json to let headless mode install them too
 
+### Engine API — build apps on top (repo in → artifact out)
+
+Other developers can drive the engine from their own desktop app or script
+via a local REST API: submit a repo URL, poll or stream progress, download
+the produced artifacts.
+
+```bash
+python3 justcompiler.py serve          # http://127.0.0.1:7400
+curl -XPOST localhost:7400/api/v1/build -d '{"url":"https://github.com/user/repo"}'
+```
+
+Full reference with a Python client (`client.py`, stdlib-only) and
+JavaScript/Electron examples: **[docs/API.md](docs/API.md)**
+
 ### Project overrides (`.justcompiler.json`)
 
 Place next to your sources to make autonomous builds deterministic:
