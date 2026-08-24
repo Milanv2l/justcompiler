@@ -89,6 +89,23 @@ def check_for_updates() -> None:
     except Exception:
         pass
 
+def _load_custom_plugins() -> list:
+    """Load user-defined plugins from ~/.justcompiler/plugins.d/*.json."""
+    pdir = Path.home() / ".justcompiler" / "plugins.d"
+    if not pdir.is_dir():
+        return []
+    extra = []
+    for f in sorted(pdir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                extra.extend(data)
+            elif isinstance(data, dict):
+                extra.append(data)
+        except Exception:
+            pass
+    return extra
+
 def _scan_targets(root: Path) -> list:
     """Walk project and return detected build targets with platform/modloader info."""
     targets = []
@@ -100,6 +117,7 @@ def _scan_targets(root: Path) -> list:
         plugins = json.loads(plugins_path.read_text())
     except Exception:
         return targets
+    plugins.extend(_load_custom_plugins())
 
     for dirpath, dirs, _ in os.walk(str(root)):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in
@@ -1569,7 +1587,18 @@ if __name__ == "__main__":
             handle_uninstall()
         if sys.argv[1].lower() == "clean":
             handle_clean()
-        if sys.argv[1].lower() in ("--version", "-v"):
+        if sys.argv[1].lower() == "serve":
+            port = 7400
+            if "--port" in sys.argv:
+                try:
+                    port = int(sys.argv[sys.argv.index("--port") + 1])
+                except (IndexError, ValueError):
+                    pass
+            import daemon as daemon_mod
+            daemon_mod.serve(port=port,
+                         execute_fn=execute_build,
+                         version_fn=lambda: VERSION)
+    if sys.argv[1].lower() in ("--version", "-v"):
             print(f"JustCompiler v{VERSION}")
             sys.exit(0)
 
