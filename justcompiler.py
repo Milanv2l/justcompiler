@@ -16,10 +16,10 @@ from core import UI, t
 import docker_manager
 import hostdeps
 
-VERSION = "2.10.1"
+VERSION = "2.11.0"
 CURRENT_STATUS = "Standby"
 CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
-UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "plugins.json", "checksums.txt"]
+UPDATE_FILES = ["justcompiler.py", "core.py", "engine.py", "docker_manager.py", "tui.py", "hostdeps.py", "daemon.py", "client.py", "plugins.json", "checksums.txt"]
 
 def verify_checksum(file_path: str, expected_hash: str) -> bool:
     sha256 = hashlib.sha256()
@@ -1594,10 +1594,18 @@ if __name__ == "__main__":
                     port = int(sys.argv[sys.argv.index("--port") + 1])
                 except (IndexError, ValueError):
                     pass
+            max_builds = 1
+            if "--max-builds" in sys.argv:
+                try:
+                    max_builds = max(1, int(
+                        sys.argv[sys.argv.index("--max-builds") + 1]))
+                except (IndexError, ValueError):
+                    pass
             import daemon as daemon_mod
             daemon_mod.serve(port=port,
-                         execute_fn=execute_build,
-                         version_fn=lambda: VERSION)
+                             execute_fn=execute_build,
+                             version_fn=lambda: VERSION,
+                             max_concurrent=max_builds)
         if sys.argv[1].lower() in ("--version", "-v"):
             print(f"JustCompiler v{VERSION}")
             sys.exit(0)
