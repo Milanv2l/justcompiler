@@ -17,6 +17,22 @@ from pathlib import Path
 
 import justcompiler as jc
 import core
+from textual.theme import Theme
+
+NAVY_THEME = Theme(
+    name="jc-dark",
+    primary="#2b6cb0",
+    secondary="#16324f",
+    accent="#2b527a",
+    foreground="#c9d1d9",
+    background="#0d1117",
+    surface="#161b22",
+    panel="#1a2332",
+    success="#3fb950",
+    warning="#d29922",
+    error="#f85149",
+    dark=True,
+)
 from core import UI, t
 import docker_manager
 import hostdeps as hostdeps_mod
@@ -1169,37 +1185,22 @@ if HAS_TEXTUAL:
             ("f1", "help", "Help"),
         ]
         CSS = """
-        /* darker navy palette (v2.6.0) — tune these hexes to taste */
-        Screen { background: #0d1117; }
-        Header { background: #0b1622; }
-        Button { background: #16213a; }
-        Button:hover { background: #1e3a5c; }
-        Button:focus { background: #27507f; outline: none; }
-        Button.-primary { background: #1e3a5c; }
-        Button.-primary:hover { background: #27507f; }
-        Button.-primary:focus { background: #27507f; outline: none; }
-        Input:focus, Select:focus, Switch:focus { outline: none; }
         #menu { height: auto; max-height: 40%; }
         #recent { height: 1fr; }
         #recent-title, #home-menu-title { margin-left: 0; }
-        #home-head { padding: 0 1; background: #10233a; }
         Vertical { padding: 0 1; }
         Horizontal { height: auto; }
         Label { margin: 0; }
         Input, Select { width: 100%; }
-        #run-log { border: round #2b527a; height: 1fr; display: none; }
+        #run-log { height: 1fr; display: none; }
         BuildRunScreen.showlog #run-log { display: block; }
         BuildRunScreen.showlog #run-steps,
         BuildRunScreen.showlog #run-lastline { display: none; }
-        #run-steps { margin: 0; color: $text; }
+        #run-steps { margin: 0; }
         #run-lastline { height: auto; max-height: 2; }
         #run-bar { margin: 0; }
         DataTable { height: 1fr; }
-        #branch-list { height: 1fr; }
-        #branch-hint { margin: 0; color: $text-muted; }
-        #art-hint { color: yellow; }
-        #set-status { color: yellow; }
-        """
+        #branch-list { height: 1fr; }"""
 
         def __init__(self):
             super().__init__()
@@ -1208,6 +1209,8 @@ if HAS_TEXTUAL:
             self.sink = TUISink(self)
 
         def get_default_screen(self):
+            self.register_theme(NAVY_THEME)
+            self.theme = "jc-dark"
             return HomeScreen()
 
         def on_mount(self):
