@@ -1114,6 +1114,14 @@ if HAS_TEXTUAL:
                     break
 
 
+        def on_button_pressed(self, ev):
+            if ev.button.id == "fs-copy":
+                self.action_copy_logs()
+            elif ev.button.id == "fs-open":
+                self.action_open_folder()
+            elif ev.button.id == "fs-home":
+                self.action_home()
+
     class PackageSelectScreen(Screen):
         BINDINGS = [("escape", "back", "Back")]
 
@@ -1174,6 +1182,14 @@ if HAS_TEXTUAL:
                 self.app.call_from_thread(lambda: None)
             threading.Thread(target=job, daemon=True).start()
 
+
+        def on_button_pressed(self, ev):
+            if ev.button.id == "fs-copy":
+                self.action_copy_logs()
+            elif ev.button.id == "fs-open":
+                self.action_open_folder()
+            elif ev.button.id == "fs-home":
+                self.action_home()
 
     class MessageScreen(Screen):
         BINDINGS = [("escape", "close", "Close"), ("enter", "close", "Close")]
