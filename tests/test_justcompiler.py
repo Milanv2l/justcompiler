@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import justcompiler as jc
+import jcconfig
 import core
 
 unix_only = pytest.mark.skipif(sys.platform == "win32",
@@ -510,7 +511,7 @@ def test_version_is_semver():
 # ------------------------------------------------------------- config i/o
 
 def test_config_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(jc, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(jcconfig, "CONFIG_FILE", tmp_path / "config.json")
     cfg = jc.load_config()
     assert cfg["check_updates"] is True
     jc.save_config(lang="nl", run_tests=True)

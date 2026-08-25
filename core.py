@@ -7,7 +7,14 @@ import time
 import re
 from pathlib import Path
 
+VERSION = "2.12.0"          # product version — single source of truth
 _CURRENT_LANG = "en"
+CURRENT_STATUS = "Standby"
+
+
+def set_current_status(msg: str) -> None:
+    global CURRENT_STATUS
+    CURRENT_STATUS = msg
 
 class _SpinnerContext:
     def __init__(self, text: str):

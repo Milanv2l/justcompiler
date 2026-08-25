@@ -188,7 +188,18 @@ integrations should use `/api/v1/*`.
 
 ## Building an app against it
 
-### Python (30 seconds, stdlib only)
+### Python in-process (no HTTP)
+
+Prefer a native embed? The engine imports cleanly without any TUI code:
+
+```python
+import core
+from runner import execute_build          # scanner/jcconfig also importable
+core.UI.bind(lambda ev: print(ev))        # optional event sink
+result = execute_build("/path/or/repo-url")   # same dict as POST /build
+```
+
+### Python over HTTP (30 seconds, stdlib only)
 
 Copy **one file** — `client.py` from the repo root — next to your app (or
 add the repo dir to `sys.path`); it has zero dependencies:

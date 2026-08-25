@@ -71,6 +71,19 @@ curl -XPOST localhost:7400/api/v1/build -d '{"url":"https://github.com/user/repo
 Full reference with a Python client (`client.py`, stdlib-only) and
 JavaScript/Electron examples: **[docs/API.md](docs/API.md)**
 
+**Python apps can also embed the engine directly in-process** (no HTTP, no
+TUI dependencies):
+
+```python
+import core
+from runner import execute_build
+core.UI.bind(print)                       # optional progress sink
+result = execute_build("https://github.com/user/repo")
+```
+
+The engine lives in TUI-free modules: `runner.py` (orchestration),
+`scanner.py` (project/target detection), `jcconfig.py` (config).
+
 ### Project overrides (`.justcompiler.json`)
 
 Place next to your sources to make autonomous builds deterministic:

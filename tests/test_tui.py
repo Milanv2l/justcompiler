@@ -8,6 +8,7 @@ import pytest
 pytest.importorskip("textual")
 
 import justcompiler as jc
+import jcconfig as _jccfg
 import tui
 
 def _no_intro(monkeypatch):
@@ -468,7 +469,7 @@ async def test_full_build_flow_via_form(tmp_path, monkeypatch):
 async def test_settings_toggle_persists(tmp_path, monkeypatch):
     from types import SimpleNamespace
     cfg_file = tmp_path / "config.json"
-    monkeypatch.setattr(jc, "CONFIG_FILE", cfg_file)
+    monkeypatch.setattr(_jccfg, "CONFIG_FILE", cfg_file)
     app = tui.JustCompilerApp()
     if "_no_intro" in globals(): _no_intro(monkeypatch)
     async with app.run_test(size=(100, 40)) as pilot:
@@ -531,7 +532,7 @@ async def test_finish_shows_clear_buttons_and_navigation(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_welcome_intro_shows_once(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.json"
-    monkeypatch.setattr(jc, "CONFIG_FILE", cfg_file)
+    monkeypatch.setattr(_jccfg, "CONFIG_FILE", cfg_file)
     monkeypatch.chdir(tmp_path)
 
     app1 = tui.JustCompilerApp()

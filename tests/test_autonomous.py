@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import justcompiler as jc
+import runner
 import docker_manager as dm
 
 
@@ -30,7 +31,7 @@ def test_cache_dest_stable_and_unique():
 
 
 def test_clone_to_cache_reuses_and_returns_meta(tmp_path, monkeypatch):
-    monkeypatch.setattr(jc, "_cache_dest_for",
+    monkeypatch.setattr(runner, "_cache_dest_for",
                         lambda url: tmp_path / "repos" / "demo-abc")
     dest = tmp_path / "repos" / "demo-abc"
     dest.mkdir(parents=True)
@@ -44,7 +45,7 @@ def test_clone_to_cache_reuses_and_returns_meta(tmp_path, monkeypatch):
         if argv[:3] == ["git", "rev-parse", "--short=8"]:
             R.stdout = "deadbeef\n"
         return R()
-    monkeypatch.setattr(jc.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
     path, branch, sha = jc._clone_to_cache("https://x/demo", None)
     assert branch == "default" and sha == "deadbeef"
