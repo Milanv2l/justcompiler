@@ -3,3 +3,5 @@ __pycache__/
 EXECUTABLE/
 app.deb
 .update_*/
+_git_cache/
+config.json
