@@ -24,6 +24,14 @@ cd justcompiler
 
 Requirements: Python 3.10+, [Docker](https://docs.docker.com/get-docker/) (Linux: rootless or sudo-capable; Windows/macOS: Docker Desktop).
 
+Alternative without cloning — install as a CLI tool (headless engine +
+`justcompiler serve`; add `[tui]` for the interactive interface):
+
+```bash
+pipx install 'justcompiler[tui] @ git+https://github.com/Milanv2l/justcompiler'
+justcompiler --help          # serve | build | update | tui
+```
+
 The first launch downloads/builds the sandbox base image (~5–10 min, once per image change). Package caches (Gradle, Maven, npm, pip, cargo) persist on the host between runs.
 
 ## Usage

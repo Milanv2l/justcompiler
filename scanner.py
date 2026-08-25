@@ -39,8 +39,35 @@ _PROJECT_CFG_ALLOWED = {"target", "java_version", "profile", "network",
                         "memory_limit", "cpu_limit", "env", "run_tests"}
 
 
+def _module_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _data_file(name: str) -> Path:
+    """Locate shipped data files (plugins.json, checksums.txt, version.txt).
+
+    Search order:
+      1. next to this module (git checkout / flat install)
+      2. $JC_HOME
+      3. {sys.prefix}/share/justcompiler   (pip/pipx wheel data-files)
+      4. ~/.justcompiler/share
+    """
+    import os
+    import sys
+    candidates = [_module_dir() / name]
+    jchome = os.environ.get("JC_HOME")
+    if jchome:
+        candidates.append(Path(jchome) / name)
+    candidates.append(Path(sys.prefix) / "share" / "justcompiler" / name)
+    candidates.append(Path.home() / ".justcompiler" / "share" / name)
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+
 def _plugins_path() -> Path:
-    return Path(__file__).resolve().parent / "plugins.json"
+    return _data_file("plugins.json")
 
 
 def _load_custom_plugins() -> list:

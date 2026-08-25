@@ -103,6 +103,7 @@ def _sandbox_flags(java_version: int | None = None, cfg: dict | None = None, ext
     return flags
 
 ACTIVE_RUN_NAME = {"name": None}
+SANDBOX_STATE = {"status": "ready", "reason": ""}   # ready | building | error
 
 def run_packaging_container(artifacts_path: Path, formats_csv: str,
                             name: str, on_line=None) -> bool:
@@ -238,14 +239,18 @@ ENV PATH="$JAVA_HOME/bin:$PATH"
     return head + body + venv + rustup + jdk
 
 def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, lang: str, set_status_fn, base_image: str = "ubuntu:24.04", target_filter: str = "", java_version: int | None = None, extra_env: dict | None = None, project_name: str = "") -> bool | None:
+    SANDBOX_STATE.update(status="building", reason="")
     if not shutil.which("docker"):
         UI.error(t('err_docker'))
+        SANDBOX_STATE.update(status="error",
+                             reason="docker CLI not found on PATH")
         return
 
     docker_cmd = get_docker_cmd()
     host_dir = Path(__file__).resolve().parent
 
-    plugins_path = host_dir / "plugins.json"
+    import scanner as _scanner
+    plugins_path = _scanner._plugins_path()
     if not plugins_path.exists():
         default_plugins = [
             {"name": "Java (Gradle)", "tool": "gradle", "detect": ["build.gradle", "build.gradle.kts"], "wrapper": "gradlew", "out_dirs": ["build/libs", "dist"], "out_exts": [".jar", ".war"]},
@@ -254,9 +259,41 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
             {"name": "Go", "tool": "go", "detect": ["go.mod"], "cmd_system": "DYNAMIC_GO_RESOLUTION", "out_dirs": ["build_output"], "out_exts": [""]},
             {"name": "Rust", "tool": "cargo", "detect": ["Cargo.toml"], "cmd_system": "cargo build --release", "out_dirs": ["target/release"], "out_exts": [""]}
         ]
-        plugins_path.write_text(json.dumps(default_plugins, indent=4), encoding="utf-8")
+        fallback_seed = host_dir / "plugins.json"
+        try:
+            fallback_seed.write_text(json.dumps(default_plugins, indent=4), encoding="utf-8")
+            plugins_path = fallback_seed
+        except OSError:
+            pass
 
     image_tag = f"justcompiler-engine:{_compute_engine_hash(host_dir)}"
+
+    # registry/pull settings readable regardless of engine-image freshness
+    try:
+        _cfg_all = json.loads((host_dir / "config.json").read_text(encoding="utf-8"))
+    except Exception:
+        _cfg_all = {}
+    registry = str(_cfg_all.get("image_registry",
+                                "ghcr.io/milanv2l/justcompiler")).strip().rstrip("/")
+    pull_enabled = bool(_cfg_all.get("pull_images", True))
+
+    def _pull_image(remote_ref, local_tag) -> bool:
+        """Pull a prebuilt image; retag to local name. Never raises."""
+        if not pull_enabled or "/" not in registry:
+            return False
+        try:
+            set_status_fn(f"Pulling {remote_ref} ...")
+            r = subprocess.run(docker_cmd + ["pull", remote_ref],
+                               capture_output=True, text=True, timeout=1200)
+            if r.returncode != 0:
+                return False
+            subprocess.run(docker_cmd + ["tag", remote_ref, local_tag],
+                           capture_output=True)
+            UI.success(f"Pulled prebuilt image {remote_ref}")
+            return True
+        except Exception as e:
+            UI.warn(f"Image pull skipped ({e}); building locally")
+            return False
 
     set_status_fn(t('docker_cache_check'))
     check_image = subprocess.run(docker_cmd + ["images", "-q", image_tag], capture_output=True, text=True)
@@ -278,14 +315,23 @@ def bootstrap_sandbox(target_path: Path, artifacts_path: Path, run_tests: bool, 
         check_base = subprocess.run(docker_cmd + ["images", "-q", base_tag], capture_output=True, text=True)
 
         if not check_base.stdout.strip():
-            set_status_fn(t('docker_building_base'))
-            UI.info("Base image not found or changed. Rebuilding...")
-            base_dockerfile_path = host_dir / "Dockerfile.base"
-            try:
-                base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
-                _build_with_spinner(t('docker_building_base'), docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", base_tag, str(host_dir)])
-            finally:
-                if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
+            remote_base = f"{registry}/justcompiler-base:{base_hash}"
+            if _pull_image(remote_base, base_tag):
+                pass
+            else:
+                set_status_fn(t('docker_building_base'))
+                UI.info("Base image not found or changed. Rebuilding...")
+                base_dockerfile_path = host_dir / "Dockerfile.base"
+                ok_base = False
+                try:
+                    base_dockerfile_path.write_text(base_dockerfile_content, encoding="utf-8")
+                    ok_base = _build_with_spinner(t('docker_building_base'), docker_cmd + ["build", "-f", str(base_dockerfile_path), "-t", base_tag, str(host_dir)])
+                finally:
+                    if base_dockerfile_path.exists(): base_dockerfile_path.unlink()
+                if not ok_base:
+                    SANDBOX_STATE.update(status="error",
+                                         reason=f"base image build failed ({base_tag})")
+                    return False
         else:
             UI.success(f"Base environment {base_tag} available")
         _prune_old_images(docker_cmd, "justcompiler-base", keep_tag=base_tag, keep=2)
@@ -326,11 +372,18 @@ exec python3 /workspace/engine.py --src /workspace/persist --out /workspace/arti
             dockerignore_path.write_text("_git_cache/\nEXECUTABLE/\n__pycache__/\n", encoding="utf-8")
             
             UI.info("Engine-laag synchroniseren...")
-            _build_with_spinner(t('docker_building_spinner'), docker_cmd + ["build", "-t", image_tag, str(host_dir)])
+            ok_eng = _build_with_spinner(t('docker_building_spinner'), docker_cmd + ["build", "-t", image_tag, str(host_dir)])
+            if not ok_eng:
+                SANDBOX_STATE.update(status="error",
+                                     reason=f"engine layer build failed ({image_tag})")
+                return False
         finally:
             if dockerfile_path.exists(): dockerfile_path.unlink()
             if entrypoint_path.exists(): entrypoint_path.unlink()
             if dockerignore_path.exists(): dockerignore_path.unlink()
+
+    # sandbox images guaranteed present from here on
+    SANDBOX_STATE.update(status="ready", reason="")
 
     home = Path.home()
     cache_dirs = {k: home / v for k, v in {

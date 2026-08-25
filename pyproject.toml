@@ -1,10 +1,41 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
+[project]
+name = "justcompiler"
+description = "Compile any project in a Docker sandbox; repo in, packaged artifacts out. Headless engine + local REST API."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = []          # headless engine is stdlib-only
 
-[tool.setuptools.packages.find]
-include = ["justcompiler*"]
+[project.optional-dependencies]
+tui = ["textual>=0.40"]
+
+[project.scripts]
+justcompiler = "jccli:main"
+
+[tool.setuptools]
+py-modules = [
+    "jccli",
+    "justcompiler",
+    "core",
+    "scanner",
+    "runner",
+    "jcconfig",
+    "engine",
+    "docker_manager",
+    "hostdeps",
+    "daemon",
+    "client",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "core.VERSION"}
+
+# shipped data files land in {prefix}/share/justcompiler and are found via
+# scanner._data_file() (module dir → $JC_HOME → prefix share → ~/.justcompiler)
+[tool.setuptools.data-files]
+"share/justcompiler" = ["plugins.json", "checksums.txt", "version.txt"]

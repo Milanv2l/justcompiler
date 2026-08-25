@@ -77,7 +77,30 @@ so browser-based shells (Electron/Tauri webviews) can call the API directly.
  "queue_length": 0, "max_builds": 1, "sandbox": "ready"}
 ```
 `sandbox` is `building` while a running job is still preparing its sandbox
-image/container (first launch: show "warming up" here), `ready` otherwise.
+image/container (first launch: show "warming up" here), `ready` otherwise,
+and `error` when the last image build failed — in that case a sibling
+`sandbox_reason` string explains why.
+When a matching prebuilt image exists on the configured registry
+(`image_registry`, default `ghcr.io/milanv2l/justcompiler`; disable with
+`"pull_images": false`) it is pulled instead of built locally.
+
+### POST /api/v1/inspect
+Dry-run project detection — exactly what a build would do, minus compiling.
+Synchronous (a fresh clone takes seconds; repeat calls hit the clone cache).
+```json
+{"url": "https://github.com/user/repo", "branch": "main"}
+```
+```json
+{"ok": true, "url": "...", "commit": "9f2c1ab",
+ "targets": [{"name": "meson.build", "platform": "GTK App",
+              "tool": "meson", "dir": "/..."}],
+ "selected": "meson.build", "java": null,
+ "overrides": {}, "branches": ["main", "dev"], "default_branch": "main"}
+```
+- `selected` honours `.justcompiler.json` overrides and auto-select scoring;
+  use it as the GUI dropdown default.
+- `branches`/`default_branch` appear only for git URLs.
+- Errors: `400 {"error": ...}` for missing input, bad path or clone failure.
 
 ### POST /api/v1/build
 ```json
@@ -162,6 +185,7 @@ Each file entry includes a `sha256` checksum for verifying downloads.
 {"id": "...", "status": "success",
  "artifacts_dir": "/home/me/proj/EXECUTABLE/app_20260824_120000",
  "files": [{"name": "app.deb", "size": 8123456,
+            "sha256": "9f86d081884c7d659a2feaa0c55ad015…",
             "download": "/api/v1/build/<id>/artifacts/app.deb"}]}
 ```
 
@@ -218,10 +242,11 @@ data: {"seq": 42, "type": "log", "job": "...", "t": ...,
   packaging | finished`); queued jobs expose `queue_position` via the
   status endpoint.
 
-Limitations: per-job log attribution in SSE is exact when
-`--max-builds 1` (default); with concurrent builds unattributed lines
-broadcast to all filtered streams. `sandbox` never reports `error` —
-only `ready|building`.
+Log attribution is exact even with `--max-builds > 1`: the engine tags
+events per worker thread. A reconnecting client whose `Last-Event-ID`
+predates a daemon restart receives live events only (the seq counter
+resets; older ids are clamped). Jobs persist across daemon restarts — see
+below.
 
 ### Error responses (all endpoints)
 
@@ -326,6 +351,14 @@ curl -sOJ localhost:7400/api/v1/build/$ID/artifacts/app.deb
 
 curl -s -N localhost:7400/api/v1/events                    # live logs
 ```
+
+## Persistence & restarts
+
+The job registry is persisted to `~/.justcompiler/jobs.json`. After a
+daemon restart every finished job keeps its original id — status,
+summary and artifact listings keep working (`/log` reads the on-disk
+build log). Jobs caught mid-flight at crash time become `build_failed`
+with `"error": "interrupted by daemon restart"`.
 
 ## Notes & limits
 

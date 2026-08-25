@@ -7,7 +7,7 @@ import time
 import re
 from pathlib import Path
 
-VERSION = "2.13.0"          # product version — single source of truth
+VERSION = "2.14.0"          # product version — single source of truth
 _CURRENT_LANG = "en"
 CURRENT_STATUS = "Standby"
 
@@ -97,11 +97,22 @@ class UI:
     DIM = "\033[2m"
     border_enabled = True
     _sink = None   # optional TUI event sink; when bound, console output is suppressed
+    _job_local = threading.local()   # per-thread job tag for API attribution
 
     @classmethod
     def bind(cls, sink):
         """Attach a TUI sink: callable(event_dict). Console output is muted."""
         cls._sink = sink
+
+    @classmethod
+    def bind_job(cls, job_id):
+        """Tag every event emitted from the CURRENT thread with a job id
+        (used by the Engine API daemon for exact per-job attribution)."""
+        cls._job_local.job = job_id
+
+    @classmethod
+    def unbind_job(cls):
+        cls._job_local.job = None
 
     @classmethod
     def unbind(cls):
@@ -111,7 +122,11 @@ class UI:
     def _emit(cls, kind: str, **data):
         if cls._sink is not None:
             try:
-                cls._sink({"event": kind, **data})
+                evt = {"event": kind, **data}
+                jid = getattr(cls._job_local, "job", None)
+                if jid:
+                    evt["_job"] = jid
+                cls._sink(evt)
             except Exception:
                 pass
 

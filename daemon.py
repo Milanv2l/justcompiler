@@ -18,6 +18,8 @@ GET    /api/v1/build/<id>/artifacts/<f>   download one artifact (binary,
                                           Content-Disposition filename)
 POST   /api/v1/build/<id>/package         {"formats":["deb","flatpak",...]}
 POST   /api/v1/build/<id>/cancel          cancel queued/running job
+POST   /api/v1/inspect                    dry-run detection {url|path, branch?}
+                                          (targets/platforms/java/branches)
 DELETE /api/v1/build/<id>[?purge_artifacts=1]
 GET    /api/v1/builds?status=&limit=&before=   filtered/paginated history
 GET    /api/v1/events[?job=<id>&since=<seq>]   SSE with Last-Event-ID resume
@@ -51,8 +53,63 @@ _cancel_requested = set()
 _SEQ = 0              # monotonically increasing SSE/event id
 _EVENT_BUF = deque(maxlen=3000)  # every published event, for SSE resume
 _MAX_BUILDS = {"n": 1}
+JOBS_FILE = Path.home() / ".justcompiler" / "jobs.json"
 
 TERMINAL = {"success", "partial", "build_failed", "invalid_input", "cancelled"}
+
+
+def _persist_jobs():
+    """Best-effort durable registry so finished jobs survive restarts."""
+    try:
+        JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _lock:
+            payload = [public_job(j, log_tail=0)
+                       for j in sorted(_jobs.values(),
+                                       key=lambda x: x.get("created_at", 0))]
+        tmp = JOBS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=1, default=str))
+        tmp.replace(JOBS_FILE)
+    except Exception:
+        pass
+
+
+def _load_jobs():
+    """Restore persisted terminal jobs at boot; interrupt half-done ones."""
+    try:
+        raw = json.loads(JOBS_FILE.read_text())
+    except Exception:
+        return
+    now = time.time()
+    restored = 0
+    with _lock:
+        for saved in raw if isinstance(raw, list) else []:
+            jid = str(saved.get("id") or "")
+            if not jid or jid in _jobs:
+                continue
+            job = {
+                "id": jid,
+                "status": saved.get("status"),
+                "url": saved.get("url"),
+                "branch": saved.get("branch"),
+                "target": saved.get("target"),
+                "all_targets": bool(saved.get("all_targets")),
+                "created_at": saved.get("created_at", now),
+                "started_at": saved.get("started_at"),
+                "finished_at": saved.get("finished_at"),
+                "exit_code": saved.get("exit_code"),
+                "summary": saved.get("summary"),
+                "artifacts_dir": saved.get("artifacts_dir"),
+                "packaging": saved.get("packaging"),
+                "_log_start": len(_LOG_BUF),
+            }
+            if job["status"] not in TERMINAL or job["status"] == "cancelled":
+                job.update(status="build_failed",
+                           error="interrupted by daemon restart",
+                           finished_at=now)
+            _jobs[jid] = job
+            restored += 1
+    if restored:
+        print(f"Restored {restored} previous job(s) from {JOBS_FILE}")
 
 KNOWN_FORMATS = ("deb", "rpm", "appimage", "flatpak", "windows-exe")
 
@@ -78,6 +135,13 @@ def _classify_stage(line):
 def _sandbox_state(running):
     """'building' while a sandbox/container is being prepared, else 'ready'.
     Never raises - health must stay cheap and reliable."""
+    try:
+        import docker_manager as dm
+        st = getattr(dm, "SANDBOX_STATE", None)
+    except Exception:
+        st = None
+    if st and st.get("status") == "error":
+        return "error"
     if running <= 0:
         return "ready"
     try:
@@ -136,11 +200,16 @@ class _Collector:
             _LOG_BUF.append(entry)
             running = [jid for jid, x in _jobs.items()
                        if x.get("status") == "running"]
-            jtag = running[0] if len(running) == 1 else None
-            if jtag:
+            jtag = ev.get("_job")
+            if jtag and jtag not in _jobs:
+                jtag = None
+            if not jtag:
+                jtag = running[0] if len(running) == 1 else None
+            target_jid = jtag or (running[0] if len(running) == 1 else None)
+            if target_jid and target_jid in _jobs:
                 st = _classify_stage(line)
                 if st:
-                    _jobs[jtag]["_stage"] = st
+                    _jobs[target_jid]["_stage"] = st
         _publish({"type": "log", "job": jtag, **entry})
 
 
@@ -177,6 +246,7 @@ def _set_job(jid: str, **fields):
               "status": snap.get("status"), "phase": snap.get("phase"),
               "stage": snap.get("stage"),
               "packaging": snap.get("packaging")})
+    _persist_jobs()
 
 
 def public_job(j: dict, log_tail: int = 40) -> dict:
@@ -277,6 +347,7 @@ def _submit(params: dict, execute_fn) -> str:
     }
     with _lock:
         _jobs[jid] = job
+    _persist_jobs()
     _publish({"type": "job", "id": jid, "status": "queued", "phase": None})
     threading.Thread(target=_run_job, args=(jid, params, execute_fn),
                      daemon=True, name=f"jc-build-{jid}").start()
@@ -379,14 +450,26 @@ def _handler_class(get_version, execute_fn, token_getter):
                                  if j.get("status") == "queued")
                     running = sum(1 for j in _jobs.values()
                                   if j.get("status") == "running")
-                self._json(200, {
+                sandbox = _sandbox_state(running)
+                reason = ""
+                if sandbox == "error":
+                    try:
+                        import docker_manager as dm
+                        reason = getattr(dm, "SANDBOX_STATE", {}).get(
+                            "reason", "")
+                    except Exception:
+                        pass
+                payload = {
                     "ok": True,
                     "version": get_version(),
                     "active_builds": queued + running,
                     "queue_length": queued,
                     "max_builds": _MAX_BUILDS["n"],
-                    "sandbox": _sandbox_state(running),
-                })
+                    "sandbox": sandbox,
+                }
+                if reason:
+                    payload["sandbox_reason"] = reason
+                self._json(200, payload)
                 return
             if not self._authorized():
                 self._json(401, {"error": "unauthorized"})
@@ -451,6 +534,15 @@ def _handler_class(get_version, execute_fn, token_getter):
                     return
                 self._package(clean[len("/api/v1/build/"):-len(m_pkg)],
                               data if isinstance(data, dict) else {})
+                return
+            if clean == "/api/v1/inspect":
+                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    data = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    self._json(400, {"error": "invalid JSON"})
+                    return
+                self._inspect(data if isinstance(data, dict) else {})
                 return
             if clean in ("/api/v1/build", "/build"):
                 length = int(self.headers.get("Content-Length") or 0)
@@ -638,9 +730,12 @@ def _handler_class(get_version, execute_fn, token_getter):
                     ok, msg = False, f"job already {st}"
                     snap = public_job(j)
             if ok:
+                _persist_jobs()
                 _publish({"type": "job", "id": bid,
                           "status": snap.get("status"),
-                          "phase": snap.get("phase")})
+                          "phase": snap.get("phase"),
+                          "stage": snap.get("stage"),
+                          "packaging": snap.get("packaging")})
                 if st == "running":
                     import docker_manager as dm
                     dm.cancel_active_run()
@@ -662,6 +757,7 @@ def _handler_class(get_version, execute_fn, token_getter):
             if j.get("status") == "running":
                 import docker_manager as dm
                 dm.cancel_active_run()
+            _persist_jobs()
             removed = False
             if qs.get("purge_artifacts") in ("1", "true") and \
                     j.get("artifacts_dir"):
@@ -704,6 +800,7 @@ def _handler_class(get_version, execute_fn, token_getter):
                     return
                 j["packaging"] = {"status": "queued", "formats": fmts}
                 snap = public_job(j)
+            _persist_jobs()
             _publish({"type": "job", "id": bid, "status": snap.get("status"),
                       "stage": snap.get("stage"),
                       "packaging": snap.get("packaging")})
@@ -737,6 +834,7 @@ def _handler_class(get_version, execute_fn, token_getter):
                         if j.get("_stage") == "packaging":
                             j["_stage"] = "finished"
                         snap = public_job(j)
+                _persist_jobs()
                 _publish({"type": "job", "id": bid,
                           "status": snap.get("status"),
                           "stage": snap.get("stage"),
@@ -755,6 +853,63 @@ def _handler_class(get_version, execute_fn, token_getter):
             with _lock:
                 _LOG_BUF.append(entry)
             _publish({"type": "log", "job": bid, **entry})
+
+        def _inspect(self, data):
+            """Dry-run project detection: same logic as the build path,
+            stopping before compiling. Synchronous (a fresh clone may take
+            seconds); repeat calls hit the shared clone cache."""
+            raw = data.get("url") or data.get("path")
+            if not raw:
+                self._json(400, {"error": "missing 'url' or 'path'"})
+                return
+            import runner as rn
+            import scanner as sc
+            commit = ""
+            try:
+                if rn._is_git_url(raw):
+                    target, _used, commit = rn._clone_to_cache(
+                        raw, data.get("branch"))
+                    branches = None
+                    default_branch = None
+                    try:
+                        import justcompiler as jc
+                        default_branch, others = jc.fetch_remote_git_info(raw)
+                        branches = ([default_branch] + others) if others \
+                            else [default_branch]
+                    except Exception:
+                        branches = None
+                else:
+                    target = Path(raw)
+                    branches = None
+                    default_branch = None
+                if not target.exists():
+                    self._json(400, {"error": f"path not found: {raw}"})
+                    return
+                targets = sc._scan_targets(target)
+                overrides = sc.load_project_config(target)
+                selected = overrides.get("target") or (
+                    sc._auto_select_target(target, targets)
+                    if targets else "")
+                java = overrides.get("java_version") or \
+                    sc._detect_java_version(target)
+                payload = {
+                    "ok": True,
+                    "url": str(raw),
+                    "commit": commit,
+                    "targets": [
+                        {"name": t["name"], "platform": t["platform"],
+                         "tool": t.get("tool", ""), "dir": t["dir"]}
+                        for t in targets],
+                    "selected": selected,
+                    "java": java,
+                    "overrides": overrides,
+                }
+                if branches:
+                    payload["branches"] = branches
+                    payload["default_branch"] = default_branch
+                self._json(200, payload)
+            except Exception as e:
+                self._json(400, {"error": f"inspect failed: {e}"})
 
         def _safe_dl_route(self, clean):
             m = "/api/v1/build/"
@@ -776,6 +931,8 @@ def _handler_class(get_version, execute_fn, token_getter):
                             self.headers.get("Last-Event-ID") or 0)
             except ValueError:
                 since = 0
+            with _lock:
+                since = min(since, max(_SEQ, 0))   # restart-safe clamp
             job_filter = qs.get("job") or None
 
             def frame(evt):
@@ -885,6 +1042,8 @@ def serve(port: int = 7400, execute_fn=None, version_fn=None,
     except Exception:
         pass
 
+    _load_jobs()
+    _persist_jobs()
     _MAX_BUILDS["n"] = max(1, int(max_concurrent))
     _sem = threading.BoundedSemaphore(_MAX_BUILDS["n"])
     handler = _handler_class(version_str, exec_fn, token_getter)
