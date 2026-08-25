@@ -12,36 +12,97 @@ GET    /api/v1/health                     liveness + version
 POST   /api/v1/build                      start build {url|path, branch?, target?, all_targets?}
 GET    /api/v1/builds                     list known jobs
 GET    /api/v1/build/<id>                 job status + summary + log tail
-GET    /api/v1/build/<id>/artifacts       list downloadable artifacts
-GET    /api/v1/build/<id>/artifacts/<f>   download one artifact (binary)
+GET    /api/v1/build/<id>/log?offset=N    full per-job log (line paging)
+GET    /api/v1/build/<id>/artifacts       list downloadable artifacts (+sha256)
+GET    /api/v1/build/<id>/artifacts/<f>   download one artifact (binary,
+                                          Content-Disposition filename)
+POST   /api/v1/build/<id>/package         {"formats":["deb","flatpak",...]}
 POST   /api/v1/build/<id>/cancel          cancel queued/running job
 DELETE /api/v1/build/<id>[?purge_artifacts=1]
-GET    /api/v1/events                     SSE stream (job + log events)
+GET    /api/v1/builds?status=&limit=&before=   filtered/paginated history
+GET    /api/v1/events[?job=<id>&since=<seq>]   SSE with Last-Event-ID resume
 
 Auth: if ~/.justcompiler/api_token exists and is non-empty, every endpoint
 except OPTIONS and /health requires "X-Auth-Token: <token>" (or a Bearer
 header). Server binds 127.0.0.1 only — never exposed to the network.
 CORS: enabled for all origins so browser-based shells (Electron) work.
 """
+import hashlib
 import http.server
 import json
 import os
 import queue as _queue
+import re as _re
 import shutil
+import subprocess
 import threading
 import time
 import uuid
 from collections import deque
 from pathlib import Path
+from urllib.parse import quote as _urlquote
 
 _lock = threading.RLock()
 _jobs = {}            # id -> job dict
 _LOG_BUF = deque(maxlen=4000)   # global captured log lines
-_subscribers = set()  # SSE subscriber queues
+_subscribers = set()  # SSE subscriber queues as (queue, job_filter|None)
 _sem = None           # concurrency limiter (set in serve)
 _cancel_requested = set()
+_SEQ = 0              # monotonically increasing SSE/event id
+_EVENT_BUF = deque(maxlen=3000)  # every published event, for SSE resume
+_MAX_BUILDS = {"n": 1}
 
 TERMINAL = {"success", "partial", "build_failed", "invalid_input", "cancelled"}
+
+KNOWN_FORMATS = ("deb", "rpm", "appimage", "flatpak", "windows-exe")
+
+_STAGE_KEYWORDS = (
+    ("cloning",     ("clon",)),
+    ("packaging",   ("packag", "deb:", "rpm:", "appimage", "flatpak",
+                     "bundle", "extracting artifacts")),
+    ("configuring", ("scanning", "selected", "java", "heap",
+                     "sandbox image", "base environment", "engine",
+                     "synchron", "test")),
+)
+
+
+def _classify_stage(line):
+    """Map a free-form status/log line to a documented pipeline stage."""
+    l = (line or "").lower()
+    for stage, keys in _STAGE_KEYWORDS:
+        if any(k in l for k in keys):
+            return stage
+    return None
+
+
+def _sandbox_state(running):
+    """'building' while a sandbox/container is being prepared, else 'ready'.
+    Never raises - health must stay cheap and reliable."""
+    if running <= 0:
+        return "ready"
+    try:
+        import docker_manager as dm
+        name = dm.ACTIVE_RUN_NAME.get("name")
+        if not name:
+            return "building"          # image/bootstrap phase
+        out = subprocess.run(
+            dm.get_docker_cmd() + ["ps", "--filter", "name=^%s$" % name,
+                                   "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=5).stdout.strip()
+        return "ready" if out else "building"
+    except Exception:
+        return "ready"
+
+
+def _sha256_file(fp):
+    h = hashlib.sha256()
+    try:
+        with open(fp, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return ""
 
 
 # ---------------------------------------------------------------- sinks ----
@@ -64,25 +125,45 @@ class _Collector:
             line = f"WARN: {ev.get('msg','')}"
         elif ev.get("event") == "info":
             line = str(ev.get("msg", ""))
+        elif ev.get("event") == "progress":
+            pct, txt = ev.get("pct"), ev.get("text") or ""
+            line = f"{txt} ({pct:.0f}%)" if isinstance(pct, (int, float)) else txt
         if not line:
             return
         stamp = time.time()
         entry = {"t": stamp, "line": line}
         with _lock:
             _LOG_BUF.append(entry)
-        _publish({"type": "log", **entry})
+            running = [jid for jid, x in _jobs.items()
+                       if x.get("status") == "running"]
+            jtag = running[0] if len(running) == 1 else None
+            if jtag:
+                st = _classify_stage(line)
+                if st:
+                    _jobs[jtag]["_stage"] = st
+        _publish({"type": "log", "job": jtag, **entry})
 
 
 def _publish(evt: dict):
+    global _SEQ
+    with _lock:
+        _SEQ += 1
+        evt = {"seq": _SEQ, **evt}
+        _EVENT_BUF.append(evt)
     dead = []
-    for q in list(_subscribers):
+    for sub in list(_subscribers):
+        q, filt = sub
+        if filt and not (
+                (evt.get("type") == "job" and evt.get("id") == filt) or
+                (evt.get("type") == "log" and evt.get("job") == filt)):
+            continue
         try:
             q.put_nowait(evt)
         except Exception:
-            dead.append(q)
-    for q in dead:
+            dead.append(sub)
+    for sub in dead:
         with _lock:
-            _subscribers.discard(q)
+            _subscribers.discard(sub)
 
 
 def _set_job(jid: str, **fields):
@@ -93,7 +174,9 @@ def _set_job(jid: str, **fields):
         j.update(fields)
         snap = public_job(j)
     _publish({"type": "job", "id": jid,
-              "status": snap.get("status"), "phase": snap.get("phase")})
+              "status": snap.get("status"), "phase": snap.get("phase"),
+              "stage": snap.get("stage"),
+              "packaging": snap.get("packaging")})
 
 
 def public_job(j: dict, log_tail: int = 40) -> dict:
@@ -114,6 +197,19 @@ def public_job(j: dict, log_tail: int = 40) -> dict:
     }
     if j.get("cancelled"):
         out["cancelled"] = True
+    if j.get("_stage"):
+        out["stage"] = j["_stage"]
+    if j.get("packaging"):
+        out["packaging"] = {k: v for k, v in j["packaging"].items()
+                            if not str(k).startswith("_")}
+    if j.get("status") == "queued":
+        try:                                  # caller holds _lock
+            order = sorted((x["id"] for x in _jobs.values()
+                            if x.get("status") == "queued"),
+                           key=lambda i: _jobs[i].get("created_at", 0))
+            out["queue_position"] = order.index(j["id"]) + 1
+        except Exception:
+            pass
     start = j.get("_log_start", 0)
     try:
         tail = [e["line"] for e in list(_LOG_BUF)[start:]][-log_tail:]
@@ -143,6 +239,7 @@ def _run_job(jid: str, params: dict, execute_fn):
                 j["status"] = "running"
                 j["_log_start"] = len(_LOG_BUF)
                 j["started_at"] = time.time()
+                j["_stage"] = "configuring"
                 snap = public_job(j)
         _publish({"type": "job", "id": jid, "status": snap.get("status"),
                   "phase": snap.get("phase")})
@@ -155,7 +252,7 @@ def _run_job(jid: str, params: dict, execute_fn):
                 target_override=params.get("target"),
                 all_targets=bool(params.get("all_targets", False)))
             status = res.get("status", "build_failed")
-            _set_job(jid, status=status,
+            _set_job(jid, status=status, _stage="finished",
                      summary=res.get("summary"),
                      artifacts_dir=res.get("artifacts_dir"),
                      exit_code=res.get("exit_code"),
@@ -278,24 +375,49 @@ def _handler_class(get_version, execute_fn, token_getter):
             clean, qs = self._route()
             if clean in ("/health", "/api/v1/health"):
                 with _lock:
-                    active = sum(1 for j in _jobs.values()
-                                 if j.get("status") in ("queued", "running"))
-                self._json(200, {"ok": True, "version": get_version(),
-                                 "active_builds": active})
+                    queued = sum(1 for j in _jobs.values()
+                                 if j.get("status") == "queued")
+                    running = sum(1 for j in _jobs.values()
+                                  if j.get("status") == "running")
+                self._json(200, {
+                    "ok": True,
+                    "version": get_version(),
+                    "active_builds": queued + running,
+                    "queue_length": queued,
+                    "max_builds": _MAX_BUILDS["n"],
+                    "sandbox": _sandbox_state(running),
+                })
                 return
             if not self._authorized():
                 self._json(401, {"error": "unauthorized"})
                 return
             if clean == "/api/v1/builds":
+                want = {s for s in qs.get("status", "").split(",") if s}
+                try:
+                    limit = max(0, int(qs.get("limit", "")))
+                except ValueError:
+                    limit = 0
+                before = qs.get("before")
                 with _lock:
-                    jobs = [public_job(j, log_tail=5)
-                            for j in sorted(_jobs.values(),
-                                            key=lambda x: x.get("created_at", 0))]
+                    ordered = sorted(_jobs.values(),
+                                     key=lambda x: x.get("created_at", 0))
+                    if before and before in _jobs:
+                        cut = _jobs[before].get("created_at", 0)
+                        ordered = [j for j in ordered
+                                   if j.get("created_at", 0) < cut]
+                    if want:
+                        ordered = [j for j in ordered
+                                   if j.get("status") in want]
+                    if limit:
+                        ordered = ordered[-limit:]
+                    jobs = [public_job(j, log_tail=5) for j in ordered]
                 self._json(200, {"jobs": jobs})
             elif clean.startswith("/api/v1/build/"):
                 rest = clean[len("/api/v1/build/"):]
                 if rest.endswith("/artifacts"):
                     self._artifacts(rest[:-len("/artifacts")])
+                elif rest.endswith("/log"):
+                    self._log(rest[:-len("/log")], qs)
                 else:
                     self._status(rest)
             elif clean.startswith("/status/"):            # legacy alias
@@ -303,7 +425,7 @@ def _handler_class(get_version, execute_fn, token_getter):
             elif clean.startswith("/artifacts/"):         # legacy alias
                 self._artifacts(clean[len("/artifacts/"):])
             elif clean == "/api/v1/events":
-                self._events()
+                self._events(qs)
             else:
                 self._json(404, {"error": "not found"})
 
@@ -318,6 +440,17 @@ def _handler_class(get_version, execute_fn, token_getter):
             m_cancel = "/cancel"
             if clean.startswith("/api/v1/build/") and clean.endswith(m_cancel):
                 self._cancel(clean[len("/api/v1/build/"):-len(m_cancel)])
+                return
+            m_pkg = "/package"
+            if clean.startswith("/api/v1/build/") and clean.endswith(m_pkg):
+                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    data = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    self._json(400, {"error": "invalid JSON"})
+                    return
+                self._package(clean[len("/api/v1/build/"):-len(m_pkg)],
+                              data if isinstance(data, dict) else {})
                 return
             if clean in ("/api/v1/build", "/build"):
                 length = int(self.headers.get("Content-Length") or 0)
@@ -368,11 +501,65 @@ def _handler_class(get_version, execute_fn, token_getter):
                 self._json(404, {"error": "unknown build id"})
                 return
             files = _artifact_files(adir if ready else None)
+            cache = None
+            if ready and files and adir:
+                with _lock:
+                    cache = j.setdefault("_sha_cache", {})
             for f in files:
                 f["download"] = f"/api/v1/build/{bid}/artifacts/{f['name']}"
+                if cache is not None:
+                    if f["name"] not in cache:
+                        fp = _safe_join(adir, f["name"])
+                        cache[f["name"]] = _sha256_file(fp) if fp else ""
+                    f["sha256"] = cache.get(f["name"], "")
             self._json(200, {"id": bid, "status": j.get("status"),
                              "artifacts_dir": adir,
                              "files": files})
+
+        def _log(self, bid, qs):
+            """Full per-job log; line-based offset paging.
+            Running jobs stream from the captured buffer; finished jobs read
+            build_log.txt from the artifacts folder when present."""
+            try:
+                offset = max(0, int(qs.get("offset", "") or 0))
+            except ValueError:
+                offset = 0
+            try:
+                limit = min(5000, max(1, int(qs.get("limit", "") or 1000)))
+            except ValueError:
+                limit = 1000
+            with _lock:
+                j = _jobs.get(bid)
+                if not j:
+                    self._json(404, {"error": "unknown build id"})
+                    return
+                start = j.get("_log_start", 0)
+                st = j.get("status")
+                adir = j.get("artifacts_dir")
+                buf_lines = [e["line"] for e in list(_LOG_BUF)[start:]]
+            lines_all = buf_lines
+            complete = st in TERMINAL
+            if complete and adir:
+                fp = Path(adir) / "build_log.txt"
+                if fp.is_file():
+                    try:
+                        lines_all = fp.read_text(errors="replace").splitlines()
+                    except OSError:
+                        pass
+                pkg = j.get("packaging") or {}
+                pkg_from = pkg.get("_log_from")
+                if isinstance(pkg_from, int):
+                    # packaging ran after the build log was written: its
+                    # output lives in the ring buffer from that point on
+                    lines_all = lines_all + [
+                        e["line"] for e in list(_LOG_BUF)[max(0, pkg_from):]]
+            page = lines_all[offset:offset + limit]
+            nxt = offset + len(page)
+            self._json(200, {
+                "id": bid, "status": st, "offset": offset,
+                "lines": page, "next_offset": nxt,
+                "total": len(lines_all), "complete": nxt >= len(lines_all),
+            })
 
         def do_HEAD(self):
             clean, _qs = self._route()
@@ -387,6 +574,12 @@ def _handler_class(get_version, execute_fn, token_getter):
                     self.send_response(200)
                     self.send_header("Content-Length",
                                      str(fp.stat().st_size))
+                    fname = Path(name).name or "artifact"
+                    ascii_safe = _re.sub(r'[^A-Za-z0-9._-]', "_", fname)
+                    self.send_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{ascii_safe}"; '
+                        f"filename*=UTF-8''{_urlquote(fname)}")
                     self._cors()
                     self.end_headers()
                     return
@@ -412,6 +605,12 @@ def _handler_class(get_version, execute_fn, token_getter):
                 self.send_header("Content-Type", ctype)
                 self._cors()
                 self.send_header("Content-Length", str(size))
+                fname = Path(name).name or "artifact"
+                ascii_safe = _re.sub(r'[^A-Za-z0-9._-]', "_", fname)
+                self.send_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{ascii_safe}"; '
+                    f"filename*=UTF-8''{_urlquote(fname)}")
                 self.end_headers()
                 with open(fp, "rb") as fh:
                     shutil.copyfileobj(fh, self.wfile)
@@ -474,6 +673,89 @@ def _handler_class(get_version, execute_fn, token_getter):
             self._json(200, {"id": bid, "deleted": True,
                              "purged_artifacts": removed})
 
+        def _package(self, bid, data):
+            """Trigger packaging (deb/rpm/appimage/flatpak/windows-exe) on a
+            finished job's artifacts. Async: progress lands in
+            job["packaging"] and produced files join the artifacts listing."""
+            fmts = data.get("formats") or []
+            if not isinstance(fmts, list) or not fmts or \
+                    not all(f in KNOWN_FORMATS for f in fmts):
+                self._json(400,
+                           {"error": "formats must be a non-empty subset "
+                                     f"of {list(KNOWN_FORMATS)}"})
+                return
+            with _lock:
+                j = _jobs.get(bid)
+                if not j:
+                    self._json(404, {"error": "unknown build id"})
+                    return
+                st = j.get("status")
+                adir = j.get("artifacts_dir")
+                if st not in TERMINAL or st == "cancelled":
+                    self._json(409, {"error": f"job is {st}; package a "
+                                              f"finished build"})
+                    return
+                if not adir or not Path(adir).is_dir():
+                    self._json(409, {"error": "no artifacts to package"})
+                    return
+                prev = j.get("packaging") or {}
+                if prev.get("status") in ("queued", "running"):
+                    self._json(409, {"error": "packaging already in progress"})
+                    return
+                j["packaging"] = {"status": "queued", "formats": fmts}
+                snap = public_job(j)
+            _publish({"type": "job", "id": bid, "status": snap.get("status"),
+                      "stage": snap.get("stage"),
+                      "packaging": snap.get("packaging")})
+
+            def worker():
+                with _lock:
+                    j = _jobs.get(bid)
+                    if not j:
+                        return
+                    j["packaging"]["status"] = "running"
+                    j["packaging"]["_log_from"] = len(_LOG_BUF)
+                    j["_stage"] = "packaging"
+                    start = len(_LOG_BUF)
+                import docker_manager as dm
+                ok = False
+                err = ""
+                try:
+                    ok = dm.run_packaging_container(
+                        Path(adir), ",".join(fmts),
+                        name=f"jc_pkg_{uuid.uuid4().hex[:8]}",
+                        on_line=lambda l: self._pkg_log(bid, start, l))
+                except Exception as e:
+                    err = str(e)
+                with _lock:
+                    j = _jobs.get(bid)
+                    if j:
+                        p = j.get("packaging") or {}
+                        p["status"] = "done" if ok else "failed"
+                        if err:
+                            p["error"] = err
+                        if j.get("_stage") == "packaging":
+                            j["_stage"] = "finished"
+                        snap = public_job(j)
+                _publish({"type": "job", "id": bid,
+                          "status": snap.get("status"),
+                          "stage": snap.get("stage"),
+                          "packaging": snap.get("packaging")})
+
+            threading.Thread(target=worker, daemon=True,
+                             name=f"jc-pkg-{bid}").start()
+            self._json(202, {"id": bid, "packaging": j["packaging"],
+                             "status_url": f"/api/v1/build/{bid}"})
+
+        def _pkg_log(self, bid, start, line):
+            """Route packaging output into the log buffer + SSE as job logs."""
+            if not line:
+                return
+            entry = {"t": time.time(), "line": str(line).rstrip()}
+            with _lock:
+                _LOG_BUF.append(entry)
+            _publish({"type": "log", "job": bid, **entry})
+
         def _safe_dl_route(self, clean):
             m = "/api/v1/build/"
             if not clean.startswith(m) or "/artifacts/" not in clean:
@@ -481,8 +763,25 @@ def _handler_class(get_version, execute_fn, token_getter):
             bid, name = clean[len(m):].split("/artifacts/", 1)
             return bid, name
 
-        def _events(self):
-            """SSE stream: job state changes + live log lines."""
+        def _events(self, qs):
+            """SSE stream with resume support.
+
+            Every event carries an incrementing `seq` and is written with an
+            `id:` line. Clients reconnecting send Last-Event-ID (or ?since=)
+            and receive exactly the events after that point. ?job=<id> limits
+            both replay and live flow to one job.
+            """
+            try:
+                since = int(qs.get("since") or
+                            self.headers.get("Last-Event-ID") or 0)
+            except ValueError:
+                since = 0
+            job_filter = qs.get("job") or None
+
+            def frame(evt):
+                return (f"id: {evt['seq']}\n"
+                        f"data: {json.dumps(evt)}\n\n").encode()
+
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -490,21 +789,25 @@ def _handler_class(get_version, execute_fn, token_getter):
             self.end_headers()
             q: _queue.SimpleQueue = _queue.SimpleQueue()
             with _lock:
-                _subscribers.add(q)
+                if since > 0:
+                    backlog = [dict(e) for e in list(_EVENT_BUF)
+                               if e["seq"] > since]
+                else:
+                    # first connect: some context, not the whole buffer
+                    backlog = [dict(e) for e in list(_EVENT_BUF)[-50:]]
+                _subscribers.add((q, job_filter))
             try:
-                # replay recent log context so late joiners catch up
-                with _lock:
-                    backlog = [dict(e) for e in list(_LOG_BUF)[-30:]]
                 for e in backlog:
-                    self.wfile.write(
-                        f"data: {json.dumps({'type': 'log', **e})}\n\n"
-                        .encode())
+                    if job_filter and not (
+                            (e.get("type") == "job" and e.get("id") == job_filter) or
+                            (e.get("type") == "log" and e.get("job") == job_filter)):
+                        continue
+                    self.wfile.write(frame(e))
                 self.wfile.flush()
                 while True:
                     try:
                         evt = q.get(timeout=15)
-                        self.wfile.write(
-                            f"data: {json.dumps(evt)}\n\n".encode())
+                        self.wfile.write(frame(evt))
                         self.wfile.flush()
                     except _queue.Empty:
                         self.wfile.write(b": keepalive\n\n")
@@ -513,7 +816,7 @@ def _handler_class(get_version, execute_fn, token_getter):
                 pass
             finally:
                 with _lock:
-                    _subscribers.discard(q)
+                    _subscribers.discard((q, job_filter))
 
         def do_GET_dispatch(self):     # pragma: no cover (kept explicit)
             pass
@@ -582,7 +885,8 @@ def serve(port: int = 7400, execute_fn=None, version_fn=None,
     except Exception:
         pass
 
-    _sem = threading.BoundedSemaphore(max(1, int(max_concurrent)))
+    _MAX_BUILDS["n"] = max(1, int(max_concurrent))
+    _sem = threading.BoundedSemaphore(_MAX_BUILDS["n"])
     handler = _handler_class(version_str, exec_fn, token_getter)
     server = ThreadingHTTPServer((bind_host, port), handler)
     server.daemon_threads = True
@@ -594,7 +898,9 @@ def serve(port: int = 7400, execute_fn=None, version_fn=None,
     print(f"  GET  /api/v1/build/<id>             status + summary + logs")
     print(f"  GET  /api/v1/build/<id>/artifacts      file list")
     print(f"  GET  /api/v1/build/<id>/artifacts/<f>  download artifact")
-    print(f"  GET  /api/v1/events                 live SSE stream")
+    print(f"  GET  /api/v1/events                 live SSE stream (resume)")
+    print(f"  GET  /api/v1/build/<id>/log?offset=N   full per-job log")
+    print(f"  POST /api/v1/build/<id>/package     deb/rpm/appimage/flatpak")
     print(tok_note)
     print("Press Ctrl+C to stop.")
     try:

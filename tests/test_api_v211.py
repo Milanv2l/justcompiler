@@ -276,12 +276,23 @@ def test_token_auth(api):
 # --------------------------------------------------------------------- SSE
 
 def test_sse_backlog_replay(api):
+    # v2.13: events are seq-stamped and buffered; first connect replays
+    # the last ~50 events with id: lines for Last-Event-ID resume
     base, *_ = api
-    D._LOG_BUF.append({"t": time.time(), "line": "hello-sse"})
+    D._publish({"type": "log", "job": None,
+                "t": time.time(), "line": "hello-sse"})
+    got_id = False
     with urllib.request.urlopen(base + "/api/v1/events", timeout=5) as r:
         assert r.headers.get("Content-Type").startswith("text/event-stream")
-        line = r.readline().decode().strip()
-    assert line.startswith("data: ") and "hello-sse" in line
+        while True:
+            line = r.readline().decode().strip()
+            if line.startswith("id: "):
+                got_id = True
+            elif line.startswith("data: ") and "hello-sse" in line:
+                break
+            elif not line:
+                continue
+    assert got_id
 
 
 # ------------------------------------------------------------------ client

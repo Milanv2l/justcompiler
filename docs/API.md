@@ -25,7 +25,8 @@ python3 justcompiler.py serve              # default port 7400
 
 ```bash
 curl localhost:7400/api/v1/health
-# {"ok": true, "version": "2.11.0", "active_builds": 0}
+# {"ok": true, "version": "2.13.0", "active_builds": 0,
+#  "queue_length": 0, "max_builds": 1, "sandbox": "ready"}
 ```
 
 That first launch may build its Docker sandbox image once (~5–10 min);
@@ -72,8 +73,11 @@ so browser-based shells (Electron/Tauri webviews) can call the API directly.
 
 ### GET /api/v1/health
 ```json
-{"ok": true, "version": "2.11.0", "active_builds": 0}
+{"ok": true, "version": "2.13.0", "active_builds": 0,
+ "queue_length": 0, "max_builds": 1, "sandbox": "ready"}
 ```
+`sandbox` is `building` while a running job is still preparing its sandbox
+image/container (first launch: show "warming up" here), `ready` otherwise.
 
 ### POST /api/v1/build
 ```json
@@ -129,13 +133,31 @@ Failed jobs include `"error"` when the engine itself raised, and
 `summary.failure_report` with the path to the collected crash report.
 Unknown id → `404`.
 
-### GET /api/v1/builds
-List all known jobs (newest last), each with a 5-line log tail:
+### GET /api/v1/builds?status=a,b&limit=N&before=<id>
+Filtered/paginated history (newest last), each job with a 5-line log tail.
+`status` filters on a comma-separated subset; `limit` returns the newest N
+after filtering; `before=<id>` pages using that job's creation time as
+cursor. Queued jobs additionally carry `"queue_position"`.
+
 ```json
-{"jobs": [ {...}, ... ]}
+{"jobs": [ {..., "queue_position": 1}, ... ]}
 ```
 
+### GET /api/v1/build/<id>/log?offset=N&limit=M
+Full per-job build log with line-based paging — the polling fallback when
+SSE is unavailable or a client connects late/restarts.
+```json
+{"id": "...", "status": "running", "offset": 0,
+ "lines": ["Cloned (...)", "[build] compiling..."],
+ "next_offset": 2, "total": 214, "complete": false}
+```
+- Running jobs stream from the captured buffer; finished jobs read
+  `build_log.txt` from the artifacts folder (packaging output produced
+  afterwards is appended).
+- `complete` is true once `next_offset >= total`. Page size ≤ 5000 lines.
+
 ### GET /api/v1/build/<id>/artifacts
+Each file entry includes a `sha256` checksum for verifying downloads.
 ```json
 {"id": "...", "status": "success",
  "artifacts_dir": "/home/me/proj/EXECUTABLE/app_20260824_120000",
@@ -144,8 +166,26 @@ List all known jobs (newest last), each with a 5-line log tail:
 ```
 
 ### GET /api/v1/build/<id>/artifacts/<name>
-Binary download. Path traversal outside the artifacts folder is rejected
-with `404`. Nonexistent name → `404 {"error": "no such artifact"}`.
+Binary download with `Content-Length` and `Content-Disposition`
+(`filename=` + RFC 5987 `filename*=`) so browsers and `curl -OJ` save the
+correct name and clients can show progress. Path traversal outside the
+artifacts folder is rejected with `404`.
+Nonexistent name → `404 {"error": "no such artifact"}`.
+
+### POST /api/v1/build/<id>/package
+Package an already finished job's artifacts into distributable formats:
+
+```json
+{"formats": ["flatpak", "deb"]}
+```
+
+Valid formats: `deb`, `rpm`, `appimage`, `flatpak`, `windows-exe`.
+Response `202`; progress appears as `job["packaging"] =
+{"status": "queued|running|done|failed", "formats": [...]}` on the status
+endpoint and via SSE job events; packaging output is merged into the log
+endpoint. Produced files join the normal artifacts listing automatically.
+Errors: `400` bad formats · `404` unknown id · `409` job not terminal /
+already packaging / no artifacts.
 
 ### POST /api/v1/build/<id>/cancel
 Cancels a queued job immediately; requests cancellation of a running build
@@ -158,17 +198,30 @@ Forgets the job → `200 {"deleted": true, ...}`. Refuses while running with
 `force=1`; with `purge_artifacts=1` also removes the build folder under
 `./EXECUTABLE/`. Unknown id → `404`.
 
-### GET /api/v1/events  (Server-Sent Events)
-Live stream of job-state changes and log lines:
+### GET /api/v1/events?job=<id>&since=<seq>  (Server-Sent Events)
+Live stream of job-state changes and log lines, with resume support:
 ```
-data: {"type": "log", "t": 1776000001.0, "line": "Cloned (...)"}
-data: {"type": "job", "id": "...", "status": "running"}
-data: {"type": "log", "t": 1776000002.3, "line": "[2/5] Compiling..."}
+id: 41
+data: {"seq": 41, "type": "job", "id": "...", "status": "running",
+       "stage": "configuring"}
+id: 42
+data: {"seq": 42, "type": "log", "job": "...", "t": ...,
+       "line": "Compiling..."}
 ```
-New connections replay the last ~30 log lines for context; a keepalive
-comment is sent every 15s. With `--max-builds > 1` log lines from
-concurrent builds interleave — match on job events, or read per-job
-`log_tail` from the status endpoint instead.
+- Every event carries an incrementing `seq` and an `id:` line.
+- Reconnect with the `Last-Event-ID` header (or `?since=`) to resume
+  exactly where you left off instead of re-receiving history.
+- `?job=<id>` limits both replay and live flow to one job's events.
+- First connections without `Last-Event-ID` get the last ~50 events as
+  context; keepalive comment every 15s.
+- Job events carry `stage` (`cloning | configuring | building |
+  packaging | finished`); queued jobs expose `queue_position` via the
+  status endpoint.
+
+Limitations: per-job log attribution in SSE is exact when
+`--max-builds 1` (default); with concurrent builds unattributed lines
+broadcast to all filtered streams. `sandbox` never reports `error` —
+only `ready|building`.
 
 ### Error responses (all endpoints)
 

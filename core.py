@@ -7,7 +7,7 @@ import time
 import re
 from pathlib import Path
 
-VERSION = "2.12.0"          # product version — single source of truth
+VERSION = "2.13.0"          # product version — single source of truth
 _CURRENT_LANG = "en"
 CURRENT_STATUS = "Standby"
 
